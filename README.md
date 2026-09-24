@@ -40,7 +40,11 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <summary><strong>Click to expand version history</strong></summary>
   <br>
   
-  * **v1.102 (Current)**
+  * **v1.305 (Current)**
+    * You can now switch to turbo mode without having to close the mini-program again.
+    * You can activate or deactivate turbo mode instantly; the system will now emit a sound.
+    * Code implemented by MartStartIV
+  * **v1.102**
     * Added advanced support for specialized emulators (including RPCS3 adaptation).
   * **v1.101**
     * Compatibility with PPSSPP and improved stability were included.
