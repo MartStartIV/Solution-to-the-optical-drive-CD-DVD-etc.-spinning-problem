@@ -1,7 +1,8 @@
-﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.102 - PPSSPP & RPCS3 UPDATE) ---
+﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.305 - Cambio de modo turbo con sonido al apretar algunas de las teclas) ---
+# Codigo llevado a cabo por MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   MONITOR DE UNIDAD ÓPTICA v1.102             " -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.305             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -38,8 +39,8 @@ Write-Host "`nIniciando monitoreo especializado en $driveLetter..." -ForegroundC
 
 while($true) {
     try {
-        # SE AGREGA RPCS3 A LA LISTA DE PROCESOS JUNTO A LOS DEMÁS
-        $emuladorActivo = Get-Process -Name "pcsx2", "pcsx2-qt", "ePSXe", "rpcs3", "PPSSPPWindows64", "PPSSPPWindows" -ErrorAction SilentlyContinue
+        # SE AGREGA PPSSPP Y RPCS3 A LA LISTA DE PROCESOS
+        $emuladorActivo = Get-Process -Name "pcsx2", "pcsx2-qt", "ePSXe", "rpcs3", "RPCS3", "PPSSPPWindows64", "PPSSPPWindows" -ErrorAction SilentlyContinue
         
         if ($emuladorActivo) {
             if (-not $relojEmulador.IsRunning) { $relojEmulador.Start() }
@@ -79,13 +80,13 @@ while($true) {
             }
         }
 
-        # --- LÓGICA DE PULSO ADAPTATIVA (MEJORA PPSSPP & RPCS3) ---
+        # --- LÓGICA DE PULSO ADAPTATIVA (MEJORA PPSSPP) ---
         # Definimos límites temporales para el cálculo actual
         $limiteInfActual = $limiteInferior
         $limiteSupActual = $limiteSuperior
 
-        # Si el emulador es PPSSPP o RPCS3, aplicamos el rango especial solicitado
-        if ($emuladorActivo -and ($emuladorActivo.Name -like "*PPSSPP*" -or $emuladorActivo.Name -like "*rpcs3*")) {
+        # Si el emulador es PPSSPP, aplicamos el rango especial solicitado
+        if ($emuladorActivo -and ($emuladorActivo.Name -like "*PPSSPP*")) {
             $limiteInfActual = 0.15
             $limiteSupActual = 25.98
         }
@@ -136,14 +137,34 @@ while($true) {
         }
     }
 
-    # Gestión de tiempos de espera
-    $segundosEspera = if ($emuladorActivo) { if ($modoTurbo) { 3 } else { 22 } } else { 23 }
-    for ($i = $segundosEspera; $i -gt 0; $i--) {
+    # Gestión de tiempos de espera (Optimizado con While para evitar descontrol)
+    $segundosEspera = if ($emuladorActivo) { if ($modoTurbo) { 5 } else { 22 } } else { 23 }
+    $i = $segundosEspera
+    while ($i -gt 0) {
+        
+        # COMPROBACIÓN DE TECLAS AL VUELO (' o +)
+        if ([System.Console]::KeyAvailable) {
+            $tecla = [System.Console]::ReadKey($true)
+            if ($tecla.KeyChar -eq '´' -or $tecla.KeyChar -eq '+') {
+                $modoTurbo = -not $modoTurbo
+                [System.Console]::Beep(800, 100) # Sonido rápido de confirmación
+                
+                # Ajustamos la cuenta regresiva de forma lineal y segura
+                if ($emuladorActivo) {
+                    if ($modoTurbo -and $i -gt 5) { $i = 5 }
+                    elseif (-not $modoTurbo) { $i = 22 }
+                }
+            }
+        }
+
+        $esTurboActual = ($modoTurbo -and $emuladorActivo)
         $statusExtra = if($modoBajaLatenciaActivo){ " (LOW-LAT)" } else { "" }
         $textoEstado = if($esTurboActual){ "TURBO" } else { "ESPERA$statusExtra" }
-        $msg = "`r{0}: {1} seg. restantes...      " -f $textoEstado, $i
+        $msg = "`r{0}: {1} seg. restantes... Alternar Turbo: [´] o [+]      " -f $textoEstado, $i
         Write-Host -NoNewline $msg
+        
         Start-Sleep -Seconds 1
+        $i--
     }
     Write-Host "" 
 }
