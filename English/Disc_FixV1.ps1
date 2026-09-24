@@ -1,8 +1,8 @@
-﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.102 - PPSSPP & RPCS3 UPDATE) ---
+﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.305 - PPSSPP & RPCS3 UPDATE) ---
 # Code implemented by MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   OPTICAL DRIVE MONITOR v1.102                " -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR v1.305                " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
