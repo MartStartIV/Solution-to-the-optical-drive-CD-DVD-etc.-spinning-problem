@@ -1,8 +1,8 @@
-﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.305 - Cambio de modo turbo con sonido al apretar algunas de las teclas) ---
+﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.398 - Ahora esta disponible el salto de pulsos por deteccion de MB de lectura del disco) ---
 # Codigo llevado a cabo por MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.305             " -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.398             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -34,6 +34,10 @@ $conteoEstabilidadNormal = 0
 $modoBajaLatenciaActivo = $false
 $limiteInferior = 0.48
 $limiteSuperior = 2.15
+# --- MEJORA: VARIABLES DE TELEMETRÍA GLOBAL DE TRÁFICO ---
+$globalSnapshot = @{}
+$bytesTransferidosUltimoSegundo = 0
+$lastBytes = 0
 
 Write-Host "`nIniciando monitoreo especializado en $driveLetter..." -ForegroundColor Green
 
@@ -104,6 +108,9 @@ while($true) {
             $ejecutarPulso = $true
         }
 
+        # --- FILTRO INTELIGENTE: SI JUEGO LEE, SE CANCELA EL PULSO PARA EVITAR TIRONES ---
+        if ($ejecutarPulso -and $bytesTransferidosUltimoSegundo -gt 10KB) { $ejecutarPulso = $false; $motivoSalto = "LECTURA ACTIVA JUEGO" }
+
         if ($ejecutarPulso) {
             [System.GC]::Collect()
             [System.GC]::WaitForPendingFinalizers()
@@ -112,21 +119,23 @@ while($true) {
             $stream.Close()
             $stream.Dispose()
             
-            if($esTurboActual) { $stats.ExitososTurbo++ } else { $stats.Exitosos++ }
+            if ($esTurboActual) { $stats.ExitososTurbo++ } else { $stats.Exitosos++ }
             Write-Host ("`n{0} - [{1}] - Latencia: {2:N3}ms" -f (Get-Date -Format 'HH:mm:ss'), $accion, $ms) -ForegroundColor Green
         } 
         else {
             if($esTurboActual) { $stats.SaltadosTurbo++ } else { $stats.Saltados++ }
-            Write-Host ("`n{0} - [SALTADO] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor Cyan
+            $colorSalto = if ($motivoSalto -eq "LECTURA ACTIVA JUEGO") { "Green" } else { "Cyan" }
+            Write-Host ("`n{0} - [SALTADO] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor $colorSalto
         }
     } 
     catch {
         Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Unidad ocupada (Lectura de datos)." -ForegroundColor Yellow
     }
 
-    # PANEL DE ESTADÍSTICAS
+    # PANEL DE ESTADÍSTICAS CORREGIDO
     $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
-    Write-Host "`n[ SESIÓN GLOBAL: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SALTOS: $($stats.Saltados) ]" -ForegroundColor $colorPanel
+    $textoBytes = if ($bytesTransferidosUltimoSegundo -gt 0) { "{0:N2} MB/s" -f ($bytesTransferidosUltimoSegundo / 1MB) } else { "0.00 MB/s" }
+    Write-Host "`n[ SESIÓN GLOBAL: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SALTOS: $($stats.Saltados) | TRÁFICO: $textoBytes ]" -ForegroundColor $colorPanel
     
     if ($relojEmulador.ElapsedMilliseconds -gt 0) {
         $colorSesion = if ($emuladorActivo) { "Green" } else { "Gray" }
@@ -137,19 +146,18 @@ while($true) {
         }
     }
 
-    # Gestión de tiempos de espera (Optimizado con While para evitar descontrol)
+    # Gestión de tiempos de espera (Optimizado con Captura Continua de Datos)
     $segundosEspera = if ($emuladorActivo) { if ($modoTurbo) { 5 } else { 22 } } else { 23 }
     $i = $segundosEspera
     while ($i -gt 0) {
         
-        # COMPROBACIÓN DE TECLAS AL VUELO (' o +)
+        # COMPROBACIÓN DE TECLAS AL VUELO (' o +) - INTACTO
         if ([System.Console]::KeyAvailable) {
             $tecla = [System.Console]::ReadKey($true)
             if ($tecla.KeyChar -eq '´' -or $tecla.KeyChar -eq '+') {
                 $modoTurbo = -not $modoTurbo
-                [System.Console]::Beep(800, 100) # Sonido rápido de confirmación
+                [System.Console]::Beep(800, 100) 
                 
-                # Ajustamos la cuenta regresiva de forma lineal y segura
                 if ($emuladorActivo) {
                     if ($modoTurbo -and $i -gt 5) { $i = 5 }
                     elseif (-not $modoTurbo) { $i = 22 }
@@ -157,10 +165,25 @@ while($true) {
             }
         }
 
+                # --- CAPTURA UNIVERSAL SEGUNDO A SEGUNDO (CORREGIDA CON CIM-INSTANCE) ---
+        $currentBytes = [int64](Get-CimInstance -ClassName Win32_Process | 
+                        Where-Object { $_.Name -match "pcsx2|pcsx2-qt|ePSXe|rpcs3|RPCS3|PPSSPPWindows64|PPSSPPWindows|System|explorer" } | 
+                        Measure-Object -Property ReadTransferCount -Sum).Sum
+
+        if ($lastBytes -gt 0) {
+            $diff = $currentBytes - $lastBytes
+            $bytesTransferidosUltimoSegundo = if ($diff -gt 0) { $diff } else { 0 }
+        } else {
+            $bytesTransferidosUltimoSegundo = 0
+        }
+        $lastBytes = $currentBytes # Actualizar marcador para el siguiente segundo
+
         $esTurboActual = ($modoTurbo -and $emuladorActivo)
         $statusExtra = if($modoBajaLatenciaActivo){ " (LOW-LAT)" } else { "" }
         $textoEstado = if($esTurboActual){ "TURBO" } else { "ESPERA$statusExtra" }
-        $msg = "`r{0}: {1} seg. restantes... Alternar Turbo: [´] o [+]      " -f $textoEstado, $i
+        
+        # Mostramos los Megabytes actuales directamente en la barra de carga dinámica
+        $msg = "`r{0}: {1} seg. restantes... Alternar Turbo: [´] o [+] | Tasa: {2:N2} MB/s      " -f $textoEstado, $i, ($bytesTransferidosUltimoSegundo / 1MB)
         Write-Host -NoNewline $msg
         
         Start-Sleep -Seconds 1
