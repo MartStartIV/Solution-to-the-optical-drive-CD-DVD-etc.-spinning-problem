@@ -1,8 +1,8 @@
-﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.305 - PPSSPP & RPCS3 UPDATE) ---
+﻿# --- INITIAL CONFIGURATION 2026 (VERSION v1.398 - Pulse skipping via disc read MB detection is now available) ---
 # Code implemented by MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   OPTICAL DRIVE MONITOR v1.305                " -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR V1.398                " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -34,6 +34,10 @@ $conteoEstabilidadNormal = 0
 $modoBajaLatenciaActivo = $false
 $limiteInferior = 0.48
 $limiteSuperior = 2.15
+# --- MEJORA: VARIABLES DE TELEMETRÍA GLOBAL DE TRÁFICO ---
+$globalSnapshot = @{}
+$bytesTransferidosUltimoSegundo = 0
+$lastBytes = 0
 
 Write-Host "`nStarting specialized monitoring on $driveLetter..." -ForegroundColor Green
 
@@ -79,14 +83,14 @@ while($true) {
                 }
             }
         }
-
-        # --- LÓGICA DE PULSO ADAPTATIVA (MEJORA PPSSPP & RPCS3) ---
+        
+        # --- LÓGICA DE PULSO ADAPTATIVA (MEJORA PPSSPP) ---
         # Definimos límites temporales para el cálculo actual
         $limiteInfActual = $limiteInferior
         $limiteSupActual = $limiteSuperior
 
-        # Si el emulador es PPSSPP o RPCS3, aplicamos el rango especial solicitado
-        if ($emuladorActivo -and ($emuladorActivo.Name -like "*PPSSPP*" -or $emuladorActivo.Name -like "*rpcs3*")) {
+        # Si el emulador es PPSSPP, aplicamos el rango especial solicitado
+        if ($emuladorActivo -and ($emuladorActivo.Name -like "*PPSSPP*")) {
             $limiteInfActual = 0.15
             $limiteSupActual = 25.98
         }
@@ -103,6 +107,9 @@ while($true) {
             $accion = "STANDARD IDLE PULSE"
             $ejecutarPulso = $true
         }
+        
+        # --- FILTRO INTELIGENTE: SI JUEGO LEE, SE CANCELA EL PULSO PARA EVITAR TIRONES ---
+        if ($ejecutarPulso -and $bytesTransferidosUltimoSegundo -gt 10KB) { $ejecutarPulso = $false; $motivoSalto = "ACTIVE GAME READING" }
 
         if ($ejecutarPulso) {
             [System.GC]::Collect()
@@ -111,45 +118,45 @@ while($true) {
             $null = $stream.Read($buffer, 0, 1)
             $stream.Close()
             $stream.Dispose()
-            
-            if($esTurboActual) { $stats.ExitososTurbo++ } else { $stats.Exitosos++ }
+
+            if ($esTurboActual) { $stats.ExitososTurbo++ } else { $stats.Exitosos++ }
             Write-Host ("`n{0} - [{1}] - Latency: {2:N3}ms" -f (Get-Date -Format 'HH:mm:ss'), $accion, $ms) -ForegroundColor Green
         } 
         else {
             if($esTurboActual) { $stats.SaltadosTurbo++ } else { $stats.Saltados++ }
-            Write-Host ("`n{0} - [SKIPPED] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor Cyan
+            $colorSalto = if ($motivoSalto -eq "ACTIVE GAME READING") { "Green" } else { "Cyan" }
+            Write-Host ("`n{0} - [SKIPPED] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor $colorSalto
         }
     } 
     catch {
-        Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Drive busy (Data reading)." -ForegroundColor Yellow
+        Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - - [!] Drive busy (Data reading)." -ForegroundColor Yellow
     }
-
-    # PANEL DE ESTADÍSTICAS
+    # PANEL DE ESTADÍSTICAS CORREGIDO
     $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
-    Write-Host "`n[ GLOBAL SESSION: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SKIPPED: $($stats.Saltados) ]" -ForegroundColor $colorPanel
+    $textoBytes = if ($bytesTransferidosUltimoSegundo -gt 0) { "{0:N2} MB/s" -f ($bytesTransferidosUltimoSegundo / 1MB) } else { "0.00 MB/s" }
+    Write-Host "`n[ GLOBAL SESSION: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SKIPS: $($stats.Saltados) | TRAFFIC: $textoBytes ]" -ForegroundColor $colorPanel
     
     if ($relojEmulador.ElapsedMilliseconds -gt 0) {
         $colorSesion = if ($emuladorActivo) { "Green" } else { "Gray" }
         $estadoJuego = if ($emuladorActivo) { "RUNNING" } else { "PAUSED/CLOSED" }
         Write-Host "[ GAME SESSION ($estadoJuego): $($relojEmulador.Elapsed.ToString('hh\:mm\:ss')) ]" -ForegroundColor $colorSesion
         if($modoTurbo) {
-            Write-Host "[ TURBO MODE ACTIVE | OK: $($stats.ExitososTurbo) | SKIPPED: $($stats.SaltadosTurbo) ]" -ForegroundColor Red
+            Write-Host "[ TURBO MODE ACTIVE | OK: $($stats.ExitososTurbo) | SKIPS: $($stats.SaltadosTurbo) ]" -ForegroundColor Red
         }
     }
-
-    # Gestión de tiempos de espera (Optimizado con While para evitar descontrol)
+    
+    # Gestión de tiempos de espera (Optimizado con Captura Continua de Datos)
     $segundosEspera = if ($emuladorActivo) { if ($modoTurbo) { 5 } else { 22 } } else { 23 }
     $i = $segundosEspera
     while ($i -gt 0) {
         
-        # COMPROBACIÓN DE TECLAS AL VUELO (' o +)
+        # COMPROBACIÓN DE TECLAS AL VUELO (' o +) - INTACTO
         if ([System.Console]::KeyAvailable) {
             $tecla = [System.Console]::ReadKey($true)
             if ($tecla.KeyChar -eq '´' -or $tecla.KeyChar -eq '+') {
                 $modoTurbo = -not $modoTurbo
-                [System.Console]::Beep(800, 100) # Sonido rápido de confirmación
+                [System.Console]::Beep(800, 100) 
                 
-                # Ajustamos la cuenta regresiva de forma lineal y segura
                 if ($emuladorActivo) {
                     if ($modoTurbo -and $i -gt 5) { $i = 5 }
                     elseif (-not $modoTurbo) { $i = 22 }
@@ -157,10 +164,25 @@ while($true) {
             }
         }
 
+        # --- CAPTURA UNIVERSAL SEGUNDO A SEGUNDO (CORREGIDA CON CIM-INSTANCE) ---
+        $currentBytes = [int64](Get-CimInstance -ClassName Win32_Process | 
+                        Where-Object { $_.Name -match "pcsx2|pcsx2-qt|ePSXe|rpcs3|RPCS3|PPSSPPWindows64|PPSSPPWindows|System|explorer" } | 
+                        Measure-Object -Property ReadTransferCount -Sum).Sum
+
+        if ($lastBytes -gt 0) {
+            $diff = $currentBytes - $lastBytes
+            $bytesTransferidosUltimoSegundo = if ($diff -gt 0) { $diff } else { 0 }
+        } else {
+            $bytesTransferidosUltimoSegundo = 0
+        }
+        $lastBytes = $currentBytes # Update marker for the next second
+
         $esTurboActual = ($modoTurbo -and $emuladorActivo)
         $statusExtra = if($modoBajaLatenciaActivo){ " (LOW-LAT)" } else { "" }
-        $textoEstado = if($esTurboActual){ "TURBO" } else { "ESPERA$statusExtra" }
-        $msg = "`r{0}: {1} sec. remaining... Toggle Turbo: [´] or [+]      " -f $textoEstado, $i
+        $textoEstado = if($esTurboActual){ "TURBO" } else { "WAIT$statusExtra" }
+        
+        # Mostramos los Megabytes actuales directamente en la barra de carga dinámica
+        $msg = "`r{0}: {1} sec. remaining... Toggle Turbo: [´] or [+] | Rate: {2:N2} MB/s      " -f $textoEstado, $i, ($bytesTransferidosUltimoSegundo / 1MB)
         Write-Host -NoNewline $msg
         
         Start-Sleep -Seconds 1
