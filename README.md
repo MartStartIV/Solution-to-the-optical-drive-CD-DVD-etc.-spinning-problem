@@ -40,6 +40,10 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <summary><strong>Click to expand version history</strong></summary>
   <br>
   
+  * **v1.399**
+    * Pulse skipping precision has just been improved; testing shows virtually no video stuttering when using the supported PC emulators (PS1, PS2, PS3), while maintaining a steady data read rate.
+    * System stability has been further improved.
+    * Code implemented by MartStartIV
   * **v1.398 (Current)**
     * The tool can now ignore pulses while reading real time data with its indicator.
     * The stability of the tool has been improved.
