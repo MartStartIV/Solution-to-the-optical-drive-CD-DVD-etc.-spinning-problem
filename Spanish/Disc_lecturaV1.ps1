@@ -1,8 +1,8 @@
-﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.398 - Ahora esta disponible el salto de pulsos por deteccion de MB de lectura del disco) ---
+﻿# --- CONFIGURACIÓN INICIAL 2026 (VERSIÓN v1.399 - Ahora esta disponible el salto de pulsos por deteccion de MB de lectura del disco, se mejoro la presición) ---
 # Codigo llevado a cabo por MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.398             " -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.399             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -33,7 +33,7 @@ $conteoBajaLatencia = 0
 $conteoEstabilidadNormal = 0
 $modoBajaLatenciaActivo = $false
 $limiteInferior = 0.48
-$limiteSuperior = 2.15
+$limiteSuperior = 3.87
 # --- MEJORA: VARIABLES DE TELEMETRÍA GLOBAL DE TRÁFICO ---
 $globalSnapshot = @{}
 $bytesTransferidosUltimoSegundo = 0
@@ -146,9 +146,14 @@ while($true) {
         }
     }
 
-    # Gestión de tiempos de espera (Optimizado con Captura Continua de Datos)
+    # Gestión de tiempos de espera (Optimizado con Ventana de Anticipación Predictiva)
     $segundosEspera = if ($emuladorActivo) { if ($modoTurbo) { 5 } else { 22 } } else { 23 }
     $i = $segundosEspera
+    
+    # Reiniciamos las variables acumuladoras para el nuevo ciclo
+    $bytesTransferidosUltimoSegundo = 0
+    $traficoAcumuladoVentana = 0
+
     while ($i -gt 0) {
         
         # COMPROBACIÓN DE TECLAS AL VUELO (' o +) - INTACTO
@@ -165,7 +170,7 @@ while($true) {
             }
         }
 
-                # --- CAPTURA UNIVERSAL SEGUNDO A SEGUNDO (CORREGIDA CON CIM-INSTANCE) ---
+        # --- CAPTURA UNIVERSAL SEGUNDO A SEGUNDO ---
         $currentBytes = [int64](Get-CimInstance -ClassName Win32_Process | 
                         Where-Object { $_.Name -match "pcsx2|pcsx2-qt|ePSXe|rpcs3|RPCS3|PPSSPPWindows64|PPSSPPWindows|System|explorer" } | 
                         Measure-Object -Property ReadTransferCount -Sum).Sum
@@ -176,18 +181,37 @@ while($true) {
         } else {
             $bytesTransferidosUltimoSegundo = 0
         }
-        $lastBytes = $currentBytes # Actualizar marcador para el siguiente segundo
+        $lastBytes = $currentBytes
+
+        # --- LÓGICA DE VENTANA PREDICTIVA ADAPTATIVA ---
+        # Si está en MODO TURBO, sumamos el tráfico de los últimos 2 segundos (cubre la ventana de 1.5s de forma segura)
+        if ($modoTurbo -and $emuladorActivo) {
+            if ($i -le 2) {
+                $traficoAcumuladoVentana += $bytesTransferidosUltimoSegundo
+            }
+        }
+        # Si está en MODO NORMAL, sumamos el tráfico de los últimos 2 segundos completos
+        else {
+            if ($i -le 2) {
+                $traficoAcumuladoVentana += $bytesTransferidosUltimoSegundo
+            }
+        }
 
         $esTurboActual = ($modoTurbo -and $emuladorActivo)
         $statusExtra = if($modoBajaLatenciaActivo){ " (LOW-LAT)" } else { "" }
         $textoEstado = if($esTurboActual){ "TURBO" } else { "ESPERA$statusExtra" }
         
-        # Mostramos los Megabytes actuales directamente en la barra de carga dinámica
+        # Mostramos la tasa instantánea en la barra dinámica
         $msg = "`r{0}: {1} seg. restantes... Alternar Turbo: [´] o [+] | Tasa: {2:N2} MB/s      " -f $textoEstado, $i, ($bytesTransferidosUltimoSegundo / 1MB)
         Write-Host -NoNewline $msg
         
         Start-Sleep -Seconds 1
         $i--
+    }
+    
+    # Al salir del bucle, transferimos el acumulado de la ventana de seguridad para la toma de decisiones
+    if ($traficoAcumuladoVentana -gt 0) {
+        $bytesTransferidosUltimoSegundo = $traficoAcumuladoVentana
     }
     Write-Host "" 
 }
