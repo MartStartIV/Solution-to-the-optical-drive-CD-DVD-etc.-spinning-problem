@@ -40,7 +40,13 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <summary><strong>Click to expand version history</strong></summary>
   <br>
   
-  * **v1.399 (Current)**
+  * **v1.421 (Current)**
+    * A log tracking total weight limits has been added for users who wish to view the tool's activity history.
+    * Pause and exit keys have been added to the interface and are displayed on-screen.
+    * An issue causing a loop when activating the pause function has been resolved.
+    * Minor fixes.
+    * Code implemented by MartStartIV
+  * **v1.399**
     * Pulse skipping precision has just been improved; testing shows virtually no video stuttering when using the supported PC emulators (PS1, PS2, PS3), while maintaining a steady data read rate.
     * System stability has been further improved.
     * Code implemented by MartStartIV
