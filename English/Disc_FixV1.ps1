@@ -1,8 +1,8 @@
-﻿# --- INITIAL CONFIGURATION 2026 (Version v1.399 – Pulse skipping based on disc read MB detection is now available; precision has been improved) ---
+﻿# --- VERSION v1.421 – Added a log tracking total weight (for users wishing to view the tool's activity history), plus a pause button and an exit option directly within the interface. ---
 # Code implemented by MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   OPTICAL DRIVE MONITOR V1.399                " -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR V1.421                " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -28,6 +28,24 @@ $inicioGlobal = [System.Diagnostics.Stopwatch]::StartNew()
 $relojEmulador = New-Object System.Diagnostics.Stopwatch
 $buffer = New-Object byte[] 1
 
+$docPath = [System.Environment]::GetFolderPath("MyDocuments")
+$logDir = Join-Path -Path $docPath -ChildPath "Disc Rotation Tool LOGS"
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+$logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
+
+"===============================================" | Out-File $logFile -Append -Encoding utf8
+"TOOL STARTED: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
+"===============================================" | Out-File $logFile -Append -Encoding utf8
+$global:pausado = $false
+
+function Write-Log($msg) {
+    "{0} - {1}" -f (Get-Date -Format 'HH:mm:ss'), $msg | Out-File $logFile -Append -Encoding utf8
+    if ((Get-Item $logFile).Length -gt 5MB) {
+        $lineas = Get-Content $logFile
+        $lineas[($lineas.Count/4)..($lineas.Count-1)] | Out-File $logFile -Encoding utf8
+    }
+}
+
 # Parámetros de detección de Baja Latencia y Estabilidad
 $conteoBajaLatencia = 0
 $conteoEstabilidadNormal = 0
@@ -43,6 +61,26 @@ Write-Host "`nStarting specialized monitoring on $driveLetter..." -ForegroundCol
 
 while($true) {
     try {
+
+        if ($global:pausado) {
+            Write-Host "`r[!] MONITORING PAUSED (Optical Unit Resting)... Controls: [-]Resume [*]Exit    " -ForegroundColor Yellow -NoNewline
+            
+            # --- LEER TECLADO DURANTE LA PAUSA PARA EVITAR QUE SE QUEDE PEGADO ---
+            if ([System.Console]::KeyAvailable) {
+                $teclaPausa = [System.Console]::ReadKey($true)
+                if ($teclaPausa.KeyChar -eq '-') { 
+                    $global:pausado = -not $global:pausado
+                    [System.Console]::Beep(600, 150) 
+                }
+                                if ($teclaPausa.KeyChar -eq '*') { 
+                    "`nTOOL CLOSED FROM PAUSE: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
+                    [System.Console]::Beep(400, 200); Exit 
+                }
+            }
+            
+            Start-Sleep -Milliseconds 250 # Espera corta para mantener el teclado responsivo y no saturar el CPU
+            continue
+        }
         # SE AGREGA PPSSPP Y RPCS3 A LA LISTA DE PROCESOS
         $emuladorActivo = Get-Process -Name "pcsx2", "pcsx2-qt", "ePSXe", "rpcs3", "RPCS3", "PPSSPPWindows64", "PPSSPPWindows" -ErrorAction SilentlyContinue
         
@@ -121,11 +159,13 @@ while($true) {
 
             if ($esTurboActual) { $stats.ExitososTurbo++ } else { $stats.Exitosos++ }
             Write-Host ("`n{0} - [{1}] - Latency: {2:N3}ms" -f (Get-Date -Format 'HH:mm:ss'), $accion, $ms) -ForegroundColor Green
+            Write-Log "PULSE OK - [$accion] - Latency: $($ms.ToString('N3'))ms - Current reading: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s"
         } 
         else {
             if($esTurboActual) { $stats.SaltadosTurbo++ } else { $stats.Saltados++ }
             $colorSalto = if ($motivoSalto -eq "ACTIVE GAME READING") { "Green" } else { "Cyan" }
             Write-Host ("`n{0} - [SKIPPED] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor $colorSalto
+            Write-Log "SKIPPED - Reason: $motivoSalto - Latency: $($ms.ToString('N3'))ms - Current reading: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s"
         }
     } 
     catch {
@@ -167,6 +207,11 @@ while($true) {
                     elseif (-not $modoTurbo) { $i = 22 }
                 }
             }
+            if ($tecla.KeyChar -eq '-') { $global:pausado = -not $global:pausado; [System.Console]::Beep(600, 150) }
+            if ($tecla.KeyChar -eq '*') { 
+                "`nTOOL CLOSED CORRECTLY: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
+                [System.Console]::Beep(400, 200); Exit 
+            }
         }
 
         # --- CAPTURA UNIVERSAL SEGUNDO A SEGUNDO ---
@@ -200,8 +245,8 @@ while($true) {
         $statusExtra = if($modoBajaLatenciaActivo){ " (LOW-LAT)" } else { "" }
         $textoEstado = if($esTurboActual){ "TURBO" } else { "WAIT$statusExtra" }
         
-        # Mostramos la tasa instantánea en la barra dinámica
-        $msg = "`r{0}: {1} sec. remaining... Toggle Turbo: [´] or [+] | Rate: {2:N2} MB/s      " -f $textoEstado, $i, ($bytesTransferidosUltimoSegundo / 1MB)
+        # Mostramos la tasa instantánea con la guía completa de todos los controles
+        $msg = "`r[{0}] Espe: {1}s | Controls: [´/+]Turbo [-]Pause [*]Go out | Rate: {2:N2} MB/s    " -f $textoEstado, $i, ($bytesTransferidosUltimoSegundo / 1MB)
         Write-Host -NoNewline $msg
         
         Start-Sleep -Seconds 1
