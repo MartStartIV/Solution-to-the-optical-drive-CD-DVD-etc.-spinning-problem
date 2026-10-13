@@ -1,8 +1,8 @@
-﻿# --- VERSION v1.421 – Added a log tracking total weight (for users wishing to view the tool's activity history), plus a pause button and an exit option directly within the interface. ---
+﻿# --- VERSION v1.457 – A disc detector has been added; this prevents the program from closing if the disc is missing and prompts you to insert one. Additionally, the log has been improved. ---
 # Code implemented by MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   OPTICAL DRIVE MONITOR V1.421                " -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR V1.457                " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -13,14 +13,17 @@ if ([string]::IsNullOrWhiteSpace($letraElegida)) { $letraElegida = "E" }
 $driveLetter = "$($letraElegida.ToUpper()):"
 $path = "\\.\$driveLetter"
 
-if (-not (Test-Path $driveLetter)) {
-    Write-Host "[!] Error: Drive $driveLetter does not exist." -ForegroundColor Red
+# --- VERIFICACIÓN DE EXISTENCIA FÍSICA Y DISCO (NUEVA LOGICA DE PRECISIÓN) ---
+$driveTarget = New-Object System.IO.DriveInfo($driveLetter)
+
+if (-not $driveTarget.DriveType) {
+    Write-Host "[!] Error: The drive letter $driveLetter It is not assigned in the system." -ForegroundColor Red
     pause
     return
 }
 
-$opcion = Read-Host "Activate HIGH PERFORMANCE MODE (Turbo) for Emulators? (Y/N)"
-$modoTurbo = ($opcion -eq "Y" -or $opcion -eq "y" -or $opcion -eq "S" -or $opcion -eq "s")
+$opcion = Read-Host "Activate HIGH PERFORMANCE MODE (Turbo) for Emulators? (S/N)"
+$modoTurbo = ($opcion -eq "S" -or $opcion -eq "s" -or $opcion -eq "N" -or $opcion -eq "n")
 
 # --- VARIABLES DE ESTADO Y AJUSTE DINÁMICO ---
 $stats = @{ Exitosos = 0; Saltados = 0; ExitososTurbo = 0; SaltadosTurbo = 0 }
@@ -35,6 +38,10 @@ $logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
 
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 "TOOL STARTED: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
+# --- TELEMETRÍA DE LOG: DETALLES DE VERSIÓN Y DISCO ---
+"TOOL VERSION: v1.457" | Out-File $logFile -Append -Encoding utf8
+$etiquetaDisco = if ($driveTarget.IsReady) { $driveTarget.VolumeLabel } else { "Desconocido" }
+"MONITORED UNIT : $driveLetter (Label: $etiquetaDisco)" | Out-File $logFile -Append -Encoding utf8
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 $global:pausado = $false
 
@@ -169,7 +176,7 @@ while($true) {
         }
     } 
     catch {
-        Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - - [!] Drive busy (Data reading)." -ForegroundColor Yellow
+        Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Drive busy (Data reading)." -ForegroundColor Yellow
     }
     # PANEL DE ESTADÍSTICAS CORREGIDO
     $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
