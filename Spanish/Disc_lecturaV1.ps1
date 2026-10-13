@@ -1,8 +1,8 @@
-﻿# --- VERSIÓN v1.421 - Se ha agregado su registro con limite de peso total para los que quieran verl el historico de lo realizado por la herramienta + boton de pausa y su salida desde la misma interfaz ---
+﻿# ---V1.457 - Se ha agregado su detector de disco, esto inpide que el programa se cierre por no estar presente y te pedira que insertes uno + se ha mejorado el registro log ---
 # Codigo llevado a cabo por MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.421             " -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.457             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -13,14 +13,25 @@ if ([string]::IsNullOrWhiteSpace($letraElegida)) { $letraElegida = "E" }
 $driveLetter = "$($letraElegida.ToUpper()):"
 $path = "\\.\$driveLetter"
 
-if (-not (Test-Path $driveLetter)) {
-    Write-Host "[!] Error: La unidad $driveLetter no existe." -ForegroundColor Red
+# --- VERIFICACIÓN DE EXISTENCIA FÍSICA Y DISCO (NUEVA LOGICA DE PRECISIÓN) ---
+$driveTarget = New-Object System.IO.DriveInfo($driveLetter)
+
+if (-not $driveTarget.DriveType) {
+    Write-Host "[!] Error: La letra de unidad $driveLetter no está asignada en el sistema." -ForegroundColor Red
     pause
     return
 }
 
+while (-not $driveTarget.IsReady) {
+    Write-Host "`n[!] ADVERTENCIA: No se detecta ningún disco insertado en la unidad $driveLetter." -ForegroundColor Yellow
+    Write-Host "Por favor, introduzca el disco del juego para continuar..." -ForegroundColor Yellow
+    Read-Host "Presione Enter una vez colocado el disco para reintentar"
+}
+Write-Host "[+] Disco detectado correctamente en $driveLetter. Continuando..." -ForegroundColor Green
+# -------------------------------------------------------------
+
 $opcion = Read-Host "¿Activar MODO ALTO RENDIMIENTO (Turbo) para Emuladores? (S/N)"
-$modoTurbo = ($opcion -eq "S" -or $opcion -eq "s")
+
 
 # --- VARIABLES DE ESTADO Y AJUSTE DINÁMICO ---
 $stats = @{ Exitosos = 0; Saltados = 0; ExitososTurbo = 0; SaltadosTurbo = 0 }
@@ -35,6 +46,10 @@ $logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
 
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 "HERRAMIENTA INICIADA: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
+# --- TELEMETRÍA DE LOG: DETALLES DE VERSIÓN Y DISCO ---
+"VERSION HERRAMIENTA: v1.457" | Out-File $logFile -Append -Encoding utf8
+$etiquetaDisco = if ($driveTarget.IsReady) { $driveTarget.VolumeLabel } else { "Desconocido" }
+"UNIDAD MONITOREADA : $driveLetter (Etiqueta: $etiquetaDisco)" | Out-File $logFile -Append -Encoding utf8
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 $global:pausado = $false
 
