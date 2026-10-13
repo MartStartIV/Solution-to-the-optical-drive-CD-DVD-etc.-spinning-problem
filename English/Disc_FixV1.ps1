@@ -21,6 +21,13 @@ if (-not $driveTarget.DriveType) {
     pause
     return
 }
+while (-not $driveTarget.IsReady) {
+    Write-Host "`n[!] WARNING: No disc detected in the drive. $driveLetter." -ForegroundColor Yellow
+    Write-Host "Please insert the game disc to continue...." -ForegroundColor Yellow
+    Read-Host "Press Enter after inserting the disc to retry."
+}
+Write-Host "[+] Disk successfully detected at $driveLetter. Continuing..." -ForegroundColor Green
+# -------------------------------------------------------------
 
 $opcion = Read-Host "Activate HIGH PERFORMANCE MODE (Turbo) for Emulators? (S/N)"
 $modoTurbo = ($opcion -eq "S" -or $opcion -eq "s" -or $opcion -eq "N" -or $opcion -eq "n")
