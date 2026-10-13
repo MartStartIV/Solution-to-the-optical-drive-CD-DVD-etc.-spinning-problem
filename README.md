@@ -40,7 +40,12 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <summary><strong>Click to expand version history</strong></summary>
   <br>
   
-  * **v1.421 (Current)**
+  * **v1.457 (Current)**
+    * A disc detector has been added; this prevents the program from closing if the disc is missing and prompts you to insert one.
+    * The log has been improved.
+    * Some minor issues have been resolved.
+    * Code implemented by MartStartIV
+  * **v1.421**
     * A log tracking total weight limits has been added for users who wish to view the tool's activity history.
     * Pause and exit keys have been added to the interface and are displayed on-screen.
     * An issue causing a loop when activating the pause function has been resolved.
@@ -64,3 +69,14 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
     * Compatibility with PPSSPP and improved stability were included.
 </details>
 
+### Notices
+
+<details>
+  <summary><strong>View project notices</strong></summary>
+  <br>
+  
+  * **13-10-2026**
+    * I would like to inform you that further versions within the 1.xx branch will be released, improving necessary functions for greater stability and adding additional features.
+    * I have just started developing the 2.xx branch, aiming to take the tool to the next level and resolve an issue that affects the overall experience when reading data from a disk. When this development version is released, the new functionality will be in experimental mode so I can test what I intend to implement. It is quite a complex undertaking especially since I want to stick to PowerShell, which is the core objective so it will take some time if everything goes according to plan.
+  
+</details>
