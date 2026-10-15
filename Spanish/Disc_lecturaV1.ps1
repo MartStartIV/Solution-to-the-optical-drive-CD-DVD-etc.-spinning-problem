@@ -1,8 +1,8 @@
-﻿# ---V1.457 - Se ha agregado su detector de disco, esto inpide que el programa se cierre por no estar presente y te pedira que insertes uno + se ha mejorado el registro log ---
+﻿# ---V1.467 - Se ha removido el exceso de spam en pantalla para una mejor experiencia al utilizar la herramienta ---
 # Codigo llevado a cabo por MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.457             " -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.467             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -47,7 +47,7 @@ $logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 "HERRAMIENTA INICIADA: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
 # --- TELEMETRÍA DE LOG: DETALLES DE VERSIÓN Y DISCO ---
-"VERSION HERRAMIENTA: v1.457" | Out-File $logFile -Append -Encoding utf8
+"VERSION HERRAMIENTA: v1.467" | Out-File $logFile -Append -Encoding utf8
 $etiquetaDisco = if ($driveTarget.IsReady) { $driveTarget.VolumeLabel } else { "Desconocido" }
 "UNIDAD MONITOREADA : $driveLetter (Etiqueta: $etiquetaDisco)" | Out-File $logFile -Append -Encoding utf8
 "===============================================" | Out-File $logFile -Append -Encoding utf8
@@ -77,6 +77,8 @@ Write-Host "`nIniciando monitoreo especializado en $driveLetter..." -ForegroundC
 
 while($true) {
     try {
+
+        Clear-Host # <-- NUEVA LÍNEA: Limpia la pantalla en cada ciclo para fijar la interfaz
 
         if ($global:pausado) {
             Write-Host "`r[!] MONITOREO EN PAUSA (Unidad Óptica Descansando)... Controles: [-]Reanudar [*]Salir    " -ForegroundColor Yellow -NoNewline
@@ -174,13 +176,15 @@ while($true) {
             $stream.Dispose()
             
             if ($esTurboActual) { $stats.ExitososTurbo++ } else { $stats.Exitosos++ }
-            Write-Host ("`n{0} - [{1}] - Latencia: {2:N3}ms" -f (Get-Date -Format 'HH:mm:ss'), $accion, $ms) -ForegroundColor Green
+            # --- SE REMUEVE EL `n DEL PRINCIPIO PARA EVITAR SPAM ---
+            Write-Host ("{0} - [{1}] - Latencia: {2:N3}ms" -f (Get-Date -Format 'HH:mm:ss'), $accion, $ms) -ForegroundColor Green
             Write-Log "PULSO OK - [$accion] - Latencia: $($ms.ToString('N3'))ms - Lectura actual: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s"
         } 
         else {
             if($esTurboActual) { $stats.SaltadosTurbo++ } else { $stats.Saltados++ }
             $colorSalto = if ($motivoSalto -eq "LECTURA ACTIVA JUEGO") { "Green" } else { "Cyan" }
-            Write-Host ("`n{0} - [SALTADO] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor $colorSalto
+            # --- SE REMUEVE EL `n DEL PRINCIPIO PARA EVITAR SPAM ---
+            Write-Host ("{0} - [SALTADO] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor $colorSalto
             Write-Log "SALTADO - Motivo: $motivoSalto - Latencia: $($ms.ToString('N3'))ms - Lectura actual: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s"
         }
     } 
@@ -188,10 +192,13 @@ while($true) {
         Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Unidad ocupada (Lectura de datos)." -ForegroundColor Yellow
     }
 
-    # PANEL DE ESTADÍSTICAS CORREGIDO
+    # PANEL DE ESTADÍSTICAS CORREGIDO (CON VERSIÓN FIJA)
     $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
     $textoBytes = if ($bytesTransferidosUltimoSegundo -gt 0) { "{0:N2} MB/s" -f ($bytesTransferidosUltimoSegundo / 1MB) } else { "0.00 MB/s" }
-    Write-Host "`n[ SESIÓN GLOBAL: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SALTOS: $($stats.Saltados) | TRÁFICO: $textoBytes ]" -ForegroundColor $colorPanel
+    
+    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM V1.467 ---
+    Write-Host "[ MONITOR DE UNIDAD ÓPTICA v1.467 ]" -ForegroundColor Cyan
+    Write-Host "[ SESIÓN GLOBAL: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SALTOS: $($stats.Saltados) | TRÁFICO: $textoBytes ]" -ForegroundColor $colorPanel
     
     if ($relojEmulador.ElapsedMilliseconds -gt 0) {
         $colorSesion = if ($emuladorActivo) { "Green" } else { "Gray" }
