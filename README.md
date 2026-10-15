@@ -41,9 +41,9 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <br>
 
   * **v1.467 (Current)**
-  * Excessive on-screen spam has been removed to provide a better experience when using the tool.
-  * Some minor solutions
-  * Code implemented by MartStartIV
+    * Excessive on-screen spam has been removed to provide a better experience when using the tool.
+    * Some minor solutions
+    * Code implemented by MartStartIV
   * **v1.457**
     * A disc detector has been added; this prevents the program from closing if the disc is missing and prompts you to insert one.
     * The log has been improved.
