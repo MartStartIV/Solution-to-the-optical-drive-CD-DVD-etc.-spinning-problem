@@ -1,8 +1,8 @@
-﻿# --- VERSION v1.457 – A disc detector has been added; this prevents the program from closing if the disc is missing and prompts you to insert one. Additionally, the log has been improved. ---
+﻿# --- VERSION v1.467 – Excessive on screen spam has been removed to provide a better experience when using the tool. ---
 # Code implemented by MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   OPTICAL DRIVE MONITOR V1.457                " -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR V1.467                " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # Selección de Letra de Unidad
@@ -46,7 +46,7 @@ $logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 "TOOL STARTED: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
 # --- TELEMETRÍA DE LOG: DETALLES DE VERSIÓN Y DISCO ---
-"TOOL VERSION: v1.457" | Out-File $logFile -Append -Encoding utf8
+"TOOL VERSION: v1.467" | Out-File $logFile -Append -Encoding utf8
 $etiquetaDisco = if ($driveTarget.IsReady) { $driveTarget.VolumeLabel } else { "Desconocido" }
 "MONITORED UNIT : $driveLetter (Label: $etiquetaDisco)" | Out-File $logFile -Append -Encoding utf8
 "===============================================" | Out-File $logFile -Append -Encoding utf8
@@ -75,7 +75,8 @@ Write-Host "`nStarting specialized monitoring on $driveLetter..." -ForegroundCol
 
 while($true) {
     try {
-
+        Clear-Host # <-- NUEVA LÍNEA: Limpia la pantalla en cada ciclo para fijar la interfaz
+        
         if ($global:pausado) {
             Write-Host "`r[!] MONITORING PAUSED (Optical Unit Resting)... Controls: [-]Resume [*]Exit    " -ForegroundColor Yellow -NoNewline
             
@@ -172,23 +173,28 @@ while($true) {
             $stream.Dispose()
 
             if ($esTurboActual) { $stats.ExitososTurbo++ } else { $stats.Exitosos++ }
-            Write-Host ("`n{0} - [{1}] - Latency: {2:N3}ms" -f (Get-Date -Format 'HH:mm:ss'), $accion, $ms) -ForegroundColor Green
+            # --- SE REMUEVE EL `n DEL PRINCIPIO PARA EVITAR SPAM ---
+            Write-Host ("{0} - [{1}] - Latency: {2:N3}ms" -f (Get-Date -Format 'HH:mm:ss'), $accion, $ms) -ForegroundColor Green
             Write-Log "PULSE OK - [$accion] - Latency: $($ms.ToString('N3'))ms - Current reading: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s"
         } 
         else {
             if($esTurboActual) { $stats.SaltadosTurbo++ } else { $stats.Saltados++ }
             $colorSalto = if ($motivoSalto -eq "ACTIVE GAME READING") { "Green" } else { "Cyan" }
-            Write-Host ("`n{0} - [SKIPPED] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor $colorSalto
-            Write-Log "SKIPPED - Reason: $motivoSalto - Latency: $($ms.ToString('N3'))ms - Current reading: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s"
+            # --- SE REMUEVE EL `n DEL PRINCIPIO PARA EVITAR SPAM ---
+            Write-Host ("{0} - [LEAPT] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor $colorSalto
+            Write-Log "LEAPT - Motive: $motivoSalto - Latency: $($ms.ToString('N3'))ms - Current reading: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s"
         }
     } 
     catch {
         Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Drive busy (Data reading)." -ForegroundColor Yellow
     }
-    # PANEL DE ESTADÍSTICAS CORREGIDO
+    # PANEL DE ESTADÍSTICAS CORREGIDO (CON VERSIÓN FIJA)
     $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
     $textoBytes = if ($bytesTransferidosUltimoSegundo -gt 0) { "{0:N2} MB/s" -f ($bytesTransferidosUltimoSegundo / 1MB) } else { "0.00 MB/s" }
-    Write-Host "`n[ GLOBAL SESSION: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SKIPS: $($stats.Saltados) | TRAFFIC: $textoBytes ]" -ForegroundColor $colorPanel
+
+    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM V1.467 ---
+    Write-Host "[ OPTICAL DRIVE MONITOR v1.467 ]" -ForegroundColor Cyan
+    Write-Host "[ GLOBAL SESSION: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | JUMPS: $($stats.Saltados) | TRAFFIC: $textoBytes ]" -ForegroundColor $colorPanel
     
     if ($relojEmulador.ElapsedMilliseconds -gt 0) {
         $colorSesion = if ($emuladorActivo) { "Green" } else { "Gray" }
