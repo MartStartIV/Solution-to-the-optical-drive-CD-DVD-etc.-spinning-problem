@@ -40,7 +40,13 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <summary><strong>Click to expand version history</strong></summary>
   <br>
 
-  * **v1.467 (Current)**
+  * **v1.536 (Current)**
+    * Automatic detection of CD, DVD, and Blu-ray optical drives has been added, completely eliminating the need to specify a drive letter; as soon as Windows detects the drive, the tool will identify it without any issues.
+    * The disc detection system has been improved to operate automatically, without the need to press ENTER to continue.
+    * The pulse system and other already-incorporated functions have been improved.
+    * The remaining identified errors have been resolved.
+    * This is the final version in the 1.xx branch before moving on to the 2.xx branch, which will arrive soon (once significant progress has been made on the third version of that branch).
+  * **v1.467**
     * Excessive on-screen spam has been removed to provide a better experience when using the tool.
     * Some minor solutions
     * Code implemented by MartStartIV
