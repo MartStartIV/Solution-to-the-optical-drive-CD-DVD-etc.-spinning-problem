@@ -1,36 +1,79 @@
-﻿# ---V1.467 - Se ha removido el exceso de spam en pantalla para una mejor experiencia al utilizar la herramienta ---
+﻿# ---V1.536 - Se ha agregado la función en la cual permite detectar la unidad de forma automatica para evitar que el usuario tenga que ingresar y cordinar la letra de la unidad optica ---
 # Codigo llevado a cabo por MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.467             " -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.536             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
-# Selección de Letra de Unidad
-$unidadesDisponibles = @("E", "F", "G", "Z")
-Write-Host "Unidades detectables: $($unidadesDisponibles -join ', ')" -ForegroundColor Yellow
-$letraElegida = Read-Host "Elija la letra de la unidad (Presione Enter para cargar unidad E)"
-if ([string]::IsNullOrWhiteSpace($letraElegida)) { $letraElegida = "E" }
-$driveLetter = "$($letraElegida.ToUpper()):"
-$path = "\\.\$driveLetter"
+# --- DETECCIÓN AUTOMÁTICA DE HARDWARE ÓPTICO ---
+$driveTarget = $null
+$driveLetter = ""
 
-# --- VERIFICACIÓN DE EXISTENCIA FÍSICA Y DISCO (NUEVA LOGICA DE PRECISIÓN) ---
-$driveTarget = New-Object System.IO.DriveInfo($driveLetter)
+Write-Host "`n[i] Buscando hardware... Conecte la unidad óptica (CD, DVD, Blu-ray) para acceder al sistema." -ForegroundColor Yellow
+Write-Host "-> Presione la tecla [ESC] en cualquier momento para salir de la herramienta." -ForegroundColor Gray
 
-if (-not $driveTarget.DriveType) {
-    Write-Host "[!] Error: La letra de unidad $driveLetter no está asignada en el sistema." -ForegroundColor Red
-    pause
-    return
+while ($null -eq $driveTarget) {
+    # Comprobar si el usuario desea abortar la ejecución usando la tecla ESC
+    if ([System.Console]::KeyAvailable) {
+        $teclaSalida = [System.Console]::ReadKey($true)
+        if ($teclaSalida.Key -eq 'Escape') {
+            Write-Host "`n[-] Operación cancelada por el usuario. Saliendo..." -ForegroundColor Red
+            Start-Sleep -Seconds 2
+            Exit
+        }
+    }
+
+    # Escanear el sistema buscando unidades del tipo CDRom (Ópticas físicas o USB virtuales)
+    $lectorEncontrado = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'CDRom' } | Select-Object -First 1
+
+    if ($null -ne $lectorEncontrado) {
+        $driveTarget = $lectorEncontrado
+        $driveLetter = $driveTarget.Name.Substring(0, 2) # Extrae la letra en formato "E:"
+        $path = "\\.\$driveLetter"
+        Write-Host "`n[+] Hardware detectado con éxito en la unidad: $driveLetter" -ForegroundColor Green
+    } else {
+        # Espera breve para no saturar los ciclos de reloj de la CPU durante la búsqueda
+        Start-Sleep -Milliseconds 500
+    }
 }
+
+# --- VERIFICACIÓN AUTOMÁTICA DE DISCO EN LA UNIDAD ---
+$mensajeMostrado = $false
 
 while (-not $driveTarget.IsReady) {
-    Write-Host "`n[!] ADVERTENCIA: No se detecta ningún disco insertado en la unidad $driveLetter." -ForegroundColor Yellow
-    Write-Host "Por favor, introduzca el disco del juego para continuar..." -ForegroundColor Yellow
-    Read-Host "Presione Enter una vez colocado el disco para reintentar"
-}
-Write-Host "[+] Disco detectado correctamente en $driveLetter. Continuando..." -ForegroundColor Green
-# -------------------------------------------------------------
+    if (-not $mensajeMostrado) {
+        Write-Host "`n[!] ADVERTENCIA: No se detecta ningún disco insertado en la unidad $driveLetter." -ForegroundColor Yellow
+        Write-Host "Por favor, introduzca el disco del juego para continuar..." -ForegroundColor Yellow
+        Write-Host "-> El sistema lo detectará automáticamente al ingresarlo o presione [ESC] para salir." -ForegroundColor Gray
+        $mensajeMostrado = $true
+    }
 
+    # Escucha en tiempo real de la tecla ESC sin bloquear el flujo automático
+    if ([System.Console]::KeyAvailable) {
+        $teclaDisco = [System.Console]::ReadKey($true)
+        if ($teclaDisco.Key -eq 'Escape') {
+            Write-Host "`n[-] Operación cancelada por el usuario. Saliendo..." -ForegroundColor Red
+            Start-Sleep -Seconds 2
+            Exit
+        }
+    }
+
+    # Pequeña espera para no saturar la CPU mientras el lector valida el disco físicamente
+    Start-Sleep -Milliseconds 500
+}
+
+# --- LIMPIEZA DE INTERFAZ POST-DETECCIÓN ---
+Clear-Host
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.536             " -ForegroundColor Cyan
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "[+] Hardware detectado con éxito en la unidad: $driveLetter" -ForegroundColor Green
+Write-Host "[+] Disco detectado correctamente en $driveLetter. Configurando entorno..." -ForegroundColor Green
+Write-Host "-----------------------------------------------" -ForegroundColor Cyan
+
+# Solicitud del Modo Turbo en una pantalla limpia y ordenada
 $opcion = Read-Host "¿Activar MODO ALTO RENDIMIENTO (Turbo) para Emuladores? (S/N)"
+if ($opcion -match '^[sS]') { $modoTurbo = $true }
 
 
 # --- VARIABLES DE ESTADO Y AJUSTE DINÁMICO ---
@@ -47,11 +90,14 @@ $logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 "HERRAMIENTA INICIADA: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
 # --- TELEMETRÍA DE LOG: DETALLES DE VERSIÓN Y DISCO ---
-"VERSION HERRAMIENTA: v1.467" | Out-File $logFile -Append -Encoding utf8
+"VERSION HERRAMIENTA: v1.536" | Out-File $logFile -Append -Encoding utf8
 $etiquetaDisco = if ($driveTarget.IsReady) { $driveTarget.VolumeLabel } else { "Desconocido" }
 "UNIDAD MONITOREADA : $driveLetter (Etiqueta: $etiquetaDisco)" | Out-File $logFile -Append -Encoding utf8
 "===============================================" | Out-File $logFile -Append -Encoding utf8
+# --- INICIALIZACIÓN SEGURA DE VARIABLES DE CONTROL ---
+$modoTurbo = $false
 $global:pausado = $false
+
 
 function Write-Log($msg) {
     "{0} - {1}" -f (Get-Date -Format 'HH:mm:ss'), $msg | Out-File $logFile -Append -Encoding utf8
@@ -196,8 +242,8 @@ while($true) {
     $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
     $textoBytes = if ($bytesTransferidosUltimoSegundo -gt 0) { "{0:N2} MB/s" -f ($bytesTransferidosUltimoSegundo / 1MB) } else { "0.00 MB/s" }
     
-    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM V1.467 ---
-    Write-Host "[ MONITOR DE UNIDAD ÓPTICA v1.467 ]" -ForegroundColor Cyan
+    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM V1.536 ---
+    Write-Host "[ MONITOR DE UNIDAD ÓPTICA v1.536 ]" -ForegroundColor Cyan
     Write-Host "[ SESIÓN GLOBAL: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SALTOS: $($stats.Saltados) | TRÁFICO: $textoBytes ]" -ForegroundColor $colorPanel
     
     if ($relojEmulador.ElapsedMilliseconds -gt 0) {
