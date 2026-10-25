@@ -40,7 +40,15 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <summary><strong>Click to expand version history</strong></summary>
   <br>
 
-  * **v1.536 (Current)**
+  * **v2.103 (Current)**
+    * First version of the 2.xx branch is now available.
+    * Created a new experimental feature designed to capture LBA data from optical discs (CD/DVD/Blu-ray).
+    * Added code written in .NET to support upcoming features for the tool.
+    * Improved logging within the "Disc Rotation Tool LOGS" folder.
+    * Initial data logging implemented, paving the way for the creation of a file that will eventually lead to LBA (Logical Block Address) records (to be available in future versions; an announcement will be made once implemented).
+    * Experimental mode: EXPR-TRACKER and EXPR-CACHE have been added to the logging system to gather preliminary data a key step toward the primary objective of the 2.xx branch. Although this process may take some time, the goal is to track disk blocks, current read rates (Rate: 1.72 MB/s), and other relevant data. (Note: While part of this initial approach proved unfeasible and was subsequently changed, other elements were essential for capturing the disk's LBA data.) Below is an example of a log entry captured during testing: 05:01:03 - EXPR-TRACKER - [EXECUTING: pcsx2-qt] - Blocks: 880 sectors (2048b) - Rate: 1.72 MB/s | SCRIPT RAM TANK: 20.28 MB | EMULATOR PHYSICAL RAM: 936.23 MB | EMULATOR VIRTUAL RAM: 10,189.41 MB | TOTAL DVD DATA READ: 4.25 MB. Please note that some values ​​may appear unusually high; these are generally just typos and will be addressed in a future update.
+    * More technical information can be found in the log file generated while in experimental mode.
+  * **v1.536 (LEGACY)**
     * Automatic detection of CD, DVD, and Blu-ray optical drives has been added, completely eliminating the need to specify a drive letter; as soon as Windows detects the drive, the tool will identify it without any issues.
     * The disc detection system has been improved to operate automatically, without the need to press ENTER to continue.
     * The pulse system and other already-incorporated functions have been improved.
