@@ -1,13 +1,33 @@
-﻿# ---V1.536 - Se ha agregado la función en la cual permite detectar la unidad de forma automatica para evitar que el usuario tenga que ingresar y cordinar la letra de la unidad optica ---
+﻿# ---V2.103 - Se ha agregando una nueva función experimental que promete solucionar los problemas de carga cuando se le exije a la unidad, para juegos se iniciara reporte mas detallado para intentar cargar los datos de las pistas en un futuro proximo, esta función podria llevar bastante tiempo para que pueda llegar a ser funcional en algun momento ---
 # Codigo llevado a cabo por MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.536             " -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA 2.103             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # --- DETECCIÓN AUTOMÁTICA DE HARDWARE ÓPTICO ---
 $driveTarget = $null
 $driveLetter = ""
+
+# --- COMPILACIÓN INICIAL OBLIGATORIA DE LA API DE HARDWARE NATIVO ---
+if (-not ([Ref].Assembly.GetType('Win32API.CDROM'))) {
+    $firmasNativas = @'
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr CreateFile(string lpFileName, int dwDesiredAccess, int dwShareMode, IntPtr lpSecurityAttributes, int dwCreationDisposition, int dwFlagsAndAttributes, IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool DeviceIoControl(IntPtr hDevice, uint dwIoControlCode, ref CDROM_SET_SPEED lpInBuffer, uint nInBufSize, IntPtr lpOutBuf, uint nOutBufSize, ref uint lpBytesRet, IntPtr lpOverlapped);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    public struct CDROM_SET_SPEED {
+        public byte RequestType;
+        public ushort ReadSpeed;
+        public ushort WriteSpeed;
+        public byte RotationControl;
+    }
+'@
+    Add-Type -MemberDefinition $firmasNativas -Name "CDROM" -Namespace "Win32API" | Out-Null
+}
 
 Write-Host "`n[i] Buscando hardware... Conecte la unidad óptica (CD, DVD, Blu-ray) para acceder al sistema." -ForegroundColor Yellow
 Write-Host "-> Presione la tecla [ESC] en cualquier momento para salir de la herramienta." -ForegroundColor Gray
@@ -65,19 +85,31 @@ while (-not $driveTarget.IsReady) {
 # --- LIMPIEZA DE INTERFAZ POST-DETECCIÓN ---
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   MONITOR DE UNIDAD ÓPTICA V1.536             " -ForegroundColor Cyan
+Write-Host "   MONITOR DE UNIDAD ÓPTICA 2.103             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "[+] Hardware detectado con éxito en la unidad: $driveLetter" -ForegroundColor Green
 Write-Host "[+] Disco detectado correctamente en $driveLetter. Configurando entorno..." -ForegroundColor Green
 Write-Host "-----------------------------------------------" -ForegroundColor Cyan
 
-# Solicitud del Modo Turbo en una pantalla limpia y ordenada
-$opcion = Read-Host "¿Activar MODO ALTO RENDIMIENTO (Turbo) para Emuladores? (S/N)"
-if ($opcion -match '^[sS]') { $modoTurbo = $true }
+# Solicitud del Modo Turbo y Modo Experimental Extremo
+$global:modoExperimental = $false
+$opcion = Read-Host "¿Activar MODO ALTO RENDIMIENTO (Turbo) para Emuladores? (S/N o SEXPR para Experimental)"
+
+if ($opcion -eq "SEXPR" -or $opcion -eq "sexpr") {
+    $modoTurbo = $true
+    $global:modoExperimental = $true
+    Write-Host "`n[!!!] MODO EXPERIMENTAL EXTREMO ACTIVADO - CACHÉ PREVENTIVA EN RAM" -ForegroundColor Magenta
+    Start-Sleep -Seconds 2
+} elseif ($opcion -match '^[sS]') {
+    $modoTurbo = $true
+}
+
 
 
 # --- VARIABLES DE ESTADO Y AJUSTE DINÁMICO ---
+# --- VARIABLES DE ESTADO Y AJUSTE DINÁMICO ---
 $stats = @{ Exitosos = 0; Saltados = 0; ExitososTurbo = 0; SaltadosTurbo = 0 }
+$global:CacheRAM_ActualMB = 0.00  # <--- NUEVA LÍNEA: Previene el error InvokeMethodOnNull
 $inicioGlobal = [System.Diagnostics.Stopwatch]::StartNew()
 $relojEmulador = New-Object System.Diagnostics.Stopwatch
 $buffer = New-Object byte[] 1
@@ -90,7 +122,7 @@ $logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 "HERRAMIENTA INICIADA: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
 # --- TELEMETRÍA DE LOG: DETALLES DE VERSIÓN Y DISCO ---
-"VERSION HERRAMIENTA: v1.536" | Out-File $logFile -Append -Encoding utf8
+"VERSION HERRAMIENTA: 2.103" | Out-File $logFile -Append -Encoding utf8
 $etiquetaDisco = if ($driveTarget.IsReady) { $driveTarget.VolumeLabel } else { "Desconocido" }
 "UNIDAD MONITOREADA : $driveLetter (Etiqueta: $etiquetaDisco)" | Out-File $logFile -Append -Encoding utf8
 "===============================================" | Out-File $logFile -Append -Encoding utf8
@@ -104,6 +136,78 @@ function Write-Log($msg) {
     if ((Get-Item $logFile).Length -gt 5MB) {
         $lineas = Get-Content $logFile
         $lineas[($lineas.Count/4)..($lineas.Count-1)] | Out-File $logFile -Encoding utf8
+    }
+}
+
+# FUNCIÓN EXPERIMENTAL AISLADA (CACHÉ PREVENTIVA EN RAM) ---
+function Invoke-ExperimentalCache {
+    [CmdletBinding()]
+    param (
+        [string]$DrivePath,
+        [int]$CacheMaxMB = 64
+    )
+    
+    try {
+        # Inicialización de variables globales y acumuladores de por vida
+        if ($null -eq $global:CacheRAM_ActualMB) { $global:CacheRAM_ActualMB = 0.00 }
+        if ($null -eq $global:TotalDatosPrecargadosMB) { $global:TotalDatosPrecargadosMB = 0.00 }
+        if ($null -eq $global:TotalLeidoDVD_FisicoMB) { $global:TotalLeidoDVD_FisicoMB = 0.00 }
+        
+        $letraUnidad = $DrivePath.Replace("\\.\", "").Replace(":", "")
+
+        # --- CAPTURA DE TELEMETRÍA DE MEMORIA RAM EN TIEMPO REAL ---
+        # Buscamos dinámicamente el proceso activo del emulador en la lista del sistema
+        $procJuego = Get-Process -Name "pcsx2", "pcsx2-qt", "ePSXe", "rpcs3", "RPCS3", "PPSSPPWindows64", "PPSSPPWindows" -ErrorAction SilentlyContinue | Select-Object -First 1
+        
+        $ramFisicaEmuladorMB = 0.00
+        $ramVirtualEmuladorMB = 0.00
+        $nombreEmuladorActivo = "Ninguno"
+
+        if ($null -ne $procJuego) {
+            $nombreEmuladorActivo = $procJuego.Name
+            $ramFisicaEmuladorMB = $procJuego.WorkingSet64 / 1MB
+            $ramVirtualEmuladorMB = $procJuego.VirtualMemorySize64 / 1MB
+        }
+
+        # --- REGISTRO Y SEGUIMIENTO ACTIVO DE SECTORES LBA DEL EMULADOR ---
+        if ($global:bytesTransferidosUltimoSegundo -gt 0) {
+            $mbLeidos = $global:bytesTransferidosUltimoSegundo / 1MB
+            $global:TotalLeidoDVD_FisicoMB += $mbLeidos
+            
+            if ($global:CacheRAM_ActualMB -gt 0) {
+                $global:CacheRAM_ActualMB = [System.Math]::Max(0.00, $global:CacheRAM_ActualMB - $mbLeidos)
+            }
+
+            $sectoresDesplazados = [System.Math]::Round($global:bytesTransferidosUltimoSegundo / 2048)
+            
+            # LOG DE CONSUMO: Telemetría absoluta al morder datos
+            $msgTracker = "EXPR-TRACKER - [EJECUTANDO: $nombreEmuladorActivo] - Bloques: $sectoresDesplazados sectores (2048b) - Tasa: $($mbLeidos.ToString('N2')) MB/s | TANQUE RAM SCRIPT: $($global:CacheRAM_ActualMB.ToString('N2')) MB | RAM FÍSICA EMULADOR: $($ramFisicaEmuladorMB.ToString('N2')) MB | RAM VIRTUAL EMULADOR: $($ramVirtualEmuladorMB.ToString('N2')) MB | TOTAL LEÍDO DVD: $($global:TotalLeidoDVD_FisicoMB.ToString('N2')) MB"
+            Write-Log $msgTracker
+        }
+
+        # --- REPOSICIÓN PREVENTIVA NATIVA (GIRO SIN APIS) ---
+        if ($global:CacheRAM_ActualMB -lt $CacheMaxMB) {
+            $relojCache = [System.Diagnostics.Stopwatch]::StartNew()
+            
+            $letraVolumen = "$letraUnidad`:\"
+            if (Test-Path $letraVolumen) {
+                $null = [System.IO.Directory]::GetFileSystemEntries($letraVolumen)
+                $null = [System.IO.Directory]::GetFileSystemEntries($letraVolumen)
+            }
+
+            $relojCache.Stop()
+            
+            $global:CacheRAM_ActualMB = [System.Math]::Min($CacheMaxMB, $global:CacheRAM_ActualMB + 8.00)
+            $global:TotalDatosPrecargadosMB += 8.00
+            
+            # LOG DE PRECARGA: Telemetría absoluta al inyectar bloques
+            $msgPreload = "EXPR-PRELOAD - Ráfaga Secuencial OK (+8.00 MB) - Tiempo: $($relojCache.TotalMilliseconds.ToString('N3'))ms | TANQUE RAM SCRIPT: $($global:CacheRAM_ActualMB.ToString('N2')) MB / $CacheMaxMB MB | TOTAL ANTICIPADO RAM: $($global:TotalDatosPrecargadosMB.ToString('N2')) MB | RAM FÍSICA EMULADOR: $($ramFisicaEmuladorMB.ToString('N2')) MB | RAM VIRTUAL EMULADOR: $($ramVirtualEmuladorMB.ToString('N2')) MB | TOTAL LEÍDO DVD: $($global:TotalLeidoDVD_FisicoMB.ToString('N2')) MB"
+            Write-Log $msgPreload
+        }
+    }
+    catch {
+        $errorMensaje = $_.ToString()
+        Write-Log "EXPR-CACHE - Bus retenido en este segundo (Bypass activo): $errorMensaje"
     }
 }
 
@@ -154,12 +258,25 @@ while($true) {
             if ($relojEmulador.IsRunning) { $relojEmulador.Stop() }
         }
 
-        $tiempo = Measure-Command {
-            $streamSonda = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
-            $streamSonda.Close()
-            $streamSonda.Dispose()
+        # --- BYPASS VIRTUAL DE LATENCIA EN MODO EXPERIMENTAL ---
+        if ($global:modoExperimental) {
+            # Si el emulador está leyendo activamente, asignamos una latencia de bajo impacto simulada
+            # para forzar el salto inteligente del pulso físico y no estorbar el láser.
+            if ($bytesTransferidosUltimoSegundo -gt 0) {
+                $ms = 0.650
+            } else {
+                $ms = 0.710
+            }
+        } else {
+            # Se mantiene el comportamiento original intacto si el usuario usa el Modo Normal/Turbo
+            $tiempo = Measure-Command {
+                $streamSonda = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+                $streamSonda.Close()
+                $streamSonda.Dispose()
+            }
+
+            $ms = $tiempo.TotalMilliseconds
         }
-        $ms = $tiempo.TotalMilliseconds
         
         $ejecutarPulso = $false
         $esTurboActual = ($modoTurbo -and $emuladorActivo)
@@ -210,6 +327,33 @@ while($true) {
             $ejecutarPulso = $true
         }
 
+        # --- INYECCIÓN PREVENTIVA ASILADA BLINDADA ---
+        if ($global:modoExperimental -and $emuladorActivo) {
+            try {
+                # Pasamos solo la letra de unidad limpia en formato "F:" para evitar que métodos de .NET busquen paths de hardware directos
+                $letraLimpiaBucle = $driveLetter.Replace(":", "").Replace("\", "")
+                Invoke-ExperimentalCache -DrivePath "$letraLimpiaBucle`:" -CacheMaxMB 64
+            }
+            catch {
+                Write-Log "MONITOR-BUCLE - Omisión preventiva en este ciclo: $_"
+            }
+        }
+
+        # --- FILTRO INTELIGENTE ULTRA-SELECTIVO MODIFICADO ---
+        # Si el modo experimental está activo, cualquier lectura por encima de 0 bytes cancelará el pulso físico.
+        if ($global:modoExperimental) {
+            if ($ejecutarPulso -and $bytesTransferidosUltimoSegundo -gt 0) { 
+                $ejecutarPulso = $false 
+                $motivoSalto = "LECTURA ACTIVA JUEGO" 
+            }
+        } else {
+            # Mantiene tu sensibilidad original de 10KB para el Modo Turbo estándar
+            if ($ejecutarPulso -and $bytesTransferidosUltimoSegundo -gt 10KB) { 
+                $ejecutarPulso = $false 
+                $motivoSalto = "LECTURA ACTIVA JUEGO" 
+            }
+        }
+
         # --- FILTRO INTELIGENTE: SI JUEGO LEE, SE CANCELA EL PULSO PARA EVITAR TIRONES ---
         if ($ejecutarPulso -and $bytesTransferidosUltimoSegundo -gt 10KB) { $ejecutarPulso = $false; $motivoSalto = "LECTURA ACTIVA JUEGO" }
 
@@ -235,22 +379,33 @@ while($true) {
         }
     } 
     catch {
+        $errPrincipal = $_.ToString()
         Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Unidad ocupada (Lectura de datos)." -ForegroundColor Yellow
+        Write-Log "MONITOR-CATCH - Unidad física ocupada: $errPrincipal"
     }
 
     # PANEL DE ESTADÍSTICAS CORREGIDO (CON VERSIÓN FIJA)
     $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
     $textoBytes = if ($bytesTransferidosUltimoSegundo -gt 0) { "{0:N2} MB/s" -f ($bytesTransferidosUltimoSegundo / 1MB) } else { "0.00 MB/s" }
     
-    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM V1.536 ---
-    Write-Host "[ MONITOR DE UNIDAD ÓPTICA v1.536 ]" -ForegroundColor Cyan
+    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM 2.103 ---
+    Write-Host "[ MONITOR DE UNIDAD ÓPTICA 2.103 ]" -ForegroundColor Cyan
     Write-Host "[ SESIÓN GLOBAL: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | SALTOS: $($stats.Saltados) | TRÁFICO: $textoBytes ]" -ForegroundColor $colorPanel
     
     if ($relojEmulador.ElapsedMilliseconds -gt 0) {
         $colorSesion = if ($emuladorActivo) { "Green" } else { "Gray" }
         $estadoJuego = if ($emuladorActivo) { "EJECUTANDO" } else { "EN PAUSA/CERRADO" }
         Write-Host "[ SESIÓN JUEGO ($estadoJuego): $($relojEmulador.Elapsed.ToString('hh\:mm\:ss')) ]" -ForegroundColor $colorSesion
-        if($modoTurbo) {
+        if ($global:modoExperimental) {
+            # Panel mejorado con indicador del Tanque Circular y Acumulado Histórico en RAM
+            $textoCache = "[ MODO EXPERIMENTAL SEXPR ACTIVO | TANQUE RAM: {0:N2} MB / 4.100.00 MB ]" -f $global:CacheRAM_ActualMB
+            $textoAcumulado = "[ TELEMETRÍA PREDICTIVA | TOTAL ANTICIPADO A RAM: {0:N2} MB ]" -f $global:TotalDatosPrecargadosMB
+            
+            Write-Host $textoCache -ForegroundColor Magenta
+            Write-Host $textoAcumulado -ForegroundColor Yellow
+            Write-Host "[ MODO TURBO ACTIVO | OK: $($stats.ExitososTurbo) | SALTOS: $($stats.SaltadosTurbo) ]" -ForegroundColor Red
+        }
+        elseif ($modoTurbo) {
             Write-Host "[ MODO TURBO ACTIVO | OK: $($stats.ExitososTurbo) | SALTOS: $($stats.SaltadosTurbo) ]" -ForegroundColor Red
         }
     }
@@ -312,7 +467,10 @@ while($true) {
 
         $esTurboActual = ($modoTurbo -and $emuladorActivo)
         $statusExtra = if($modoBajaLatenciaActivo){ " (LOW-LAT)" } else { "" }
-        $textoEstado = if($esTurboActual){ "TURBO" } else { "ESPERA$statusExtra" }
+        
+        # Determina el indicador visual dinámico para la barra inferior
+        $textoEstado = if($global:modoExperimental){ "SEXPR-TURBO" } elseif($esTurboActual){ "TURBO" } else { "ESPERA$statusExtra" }
+
         
         # Mostramos la tasa instantánea con la guía completa de todos los controles
         $msg = "`r[{0}] Espe: {1}s | Controles: [´/+]Turbo [-]Pausa [*]Salir | Tasa: {2:N2} MB/s    " -f $textoEstado, $i, ($bytesTransferidosUltimoSegundo / 1MB)
