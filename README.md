@@ -1,6 +1,6 @@
 <div align="center">
   
-  <h1>💿 Byte-Level Continuous Reading System</h1>
+  <h1>💿 Byte-Level Continuous Reading and the possibility of cached data System</h1>
   <p><strong>Advanced optimization tool for optical drives and emulation performance.</strong></p>
 </div>
 
@@ -11,6 +11,7 @@ This system, executed via **PowerShell**, keeps the optical drive spinning conti
 
 * **The Problem:** Standard optical drives suffer from a spin-up time delay that can otherwise exceed **three seconds** before the drive responds.
 * **The Solution:** By maintaining active byte-level contact, this script facilitates **significantly faster access** to data stored on the discs and completely eliminates mechanical spin-up latency.
+* **Future of the project:** I plan to dynamically load a portion of the data from the disks into RAM. I’ve made some progress on this (specifically regarding this function), but it’s still in the very early stages for the 2.xx branch time will tell how this actually turns out.
 
 ---
 
