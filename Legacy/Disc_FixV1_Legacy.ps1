@@ -1,0 +1,346 @@
+﻿# ---VERSIÓN v1.612 Legacy - The disk activity detection system has been fixed and improved; this allows the pulse-ignoring mechanism to monitor more system components and resolves issues with persistent read-detection alerts (AVAILABLE ONLY IN THE LEGACY VERSION). Additionally, the log files have been enhanced to include more relevant information. ---
+# Code implemented by MartStartIV
+Clear-Host
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR v1.612 Legacy             " -ForegroundColor Cyan
+Write-Host "===============================================" -ForegroundColor Cyan
+
+# --- DETECCIÓN AUTOMÁTICA DE HARDWARE ÓPTICO ---
+$driveTarget = $null
+$driveLetter = ""
+
+Write-Host "`n[i] Searching for hardware... Connect the optical drive (CD, DVD, Blu-ray) to access the system." -ForegroundColor Yellow
+Write-Host "-> Press the [ESC] key at any time to exit the tool." -ForegroundColor Gray
+
+while ($null -eq $driveTarget) {
+    # Comprobar si el usuario desea abortar la ejecución usando la tecla ESC
+    if ([System.Console]::KeyAvailable) {
+        $teclaSalida = [System.Console]::ReadKey($true)
+        if ($teclaSalida.Key -eq 'Escape') {
+            Write-Host "`n[-] Operation cancelled by the user. Exiting..." -ForegroundColor Red
+            Start-Sleep -Seconds 2
+            Exit
+        }
+    }
+
+    # Escanear el sistema buscando unidades del tipo CDRom (Ópticas físicas o USB virtuales)
+    $lectorEncontrado = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'CDRom' } | Select-Object -First 1
+
+    if ($null -ne $lectorEncontrado) {
+        $driveTarget = $lectorEncontrado
+        $driveLetter = $driveTarget.Name.Substring(0, 2) # Extrae la letra en formato "E:"
+        $path = "\\.\$driveLetter"
+        Write-Host "`n[+] Hardware successfully detected on the unit: $driveLetter" -ForegroundColor Green
+    } else {
+        # Espera breve para no saturar los ciclos de reloj de la CPU durante la búsqueda
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+# --- VERIFICACIÓN AUTOMÁTICA DE DISCO EN LA UNIDAD ---
+$mensajeMostrado = $false
+
+while (-not $driveTarget.IsReady) {
+    if (-not $mensajeMostrado) {
+        Write-Host "`n[!] WARNING: No disc detected in the drive $driveLetter." -ForegroundColor Yellow
+        Write-Host "Please insert the game disc to continue..." -ForegroundColor Yellow
+        Write-Host "-> The system will detect it automatically upon entry, or press [ESC] to exit." -ForegroundColor Gray
+        $mensajeMostrado = $true
+    }
+
+    # Escucha en tiempo real de la tecla ESC sin bloquear el flujo automático
+    if ([System.Console]::KeyAvailable) {
+        $teclaDisco = [System.Console]::ReadKey($true)
+        if ($teclaDisco.Key -eq 'Escape') {
+            Write-Host "`n[-] Operation cancelled by the user. Exiting..." -ForegroundColor Red
+            Start-Sleep -Seconds 2
+            Exit
+        }
+    }
+
+    # Pequeña espera para no saturar la CPU mientras el lector valida el disco físicamente
+    Start-Sleep -Milliseconds 500
+}
+
+# --- LIMPIEZA DE INTERFAZ POST-DETECCIÓN ---
+Clear-Host
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR v1.612 Legacy             " -ForegroundColor Cyan
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "[+] Hardware successfully detected on the unit: $driveLetter" -ForegroundColor Green
+Write-Host "[+] Disk correctly detected at $driveLetter. Setting up environment..." -ForegroundColor Green
+Write-Host "-----------------------------------------------" -ForegroundColor Cyan
+
+# Solicitud del Modo Turbo en una pantalla limpia y ordenada
+$opcion = Read-Host "Enable HIGH PERFORMANCE MODE (Turbo) for emulators? (Y/N)"
+if ($opcion -match '^[sS]') { $modoTurbo = $true }
+
+
+# --- VARIABLES DE ESTADO Y AJUSTE DINÁMICO ---
+$stats = @{ Exitosos = 0; Saltados = 0; ExitososTurbo = 0; SaltadosTurbo = 0 }
+$inicioGlobal = [System.Diagnostics.Stopwatch]::StartNew()
+$relojEmulador = New-Object System.Diagnostics.Stopwatch
+$buffer = New-Object byte[] 1
+
+$docPath = [System.Environment]::GetFolderPath("MyDocuments")
+$logDir = Join-Path -Path $docPath -ChildPath "Disc Rotation Tool LOGS"
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+$logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
+
+"===============================================" | Out-File $logFile -Append -Encoding utf8
+"TOOL STARTED: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
+# --- TELEMETRÍA DE LOG: DETALLES DE VERSIÓN Y DISCO ---
+"TOOL VERSION: v1.612 Legacy" | Out-File $logFile -Append -Encoding utf8
+$etiquetaDisco = if ($driveTarget.IsReady) { $driveTarget.VolumeLabel } else { "Desconocido" }
+"MONITORED UNIT : $driveLetter (Label: $etiquetaDisco)" | Out-File $logFile -Append -Encoding utf8
+"===============================================" | Out-File $logFile -Append -Encoding utf8
+# --- INICIALIZACIÓN SEGURA DE VARIABLES DE CONTROL ---
+$modoTurbo = $false
+$global:pausado = $false
+
+
+function Write-Log($msg) {
+    # Convertimos los bytes totales acumulados a Megabytes para un registro amigable
+    $mbAcumulados = $global:bytesTotalesAcumulados / 1MB
+    "{0} - {1} | [Total Session: {2:N2} MB]" -f (Get-Date -Format 'HH:mm:ss'), $msg, $mbAcumulados | Out-File $logFile -Append -Encoding utf8
+    if ((Get-Item $logFile).Length -gt 5MB) {
+        $lineas = Get-Content $logFile
+        $lineas[($lineas.Count/4)..($lineas.Count-1)] | Out-File $logFile -Encoding utf8
+    }
+}
+
+
+# Parámetros de detección de Baja Latencia y Estabilidad
+$conteoBajaLatencia = 0
+$conteoEstabilidadNormal = 0
+$modoBajaLatenciaActivo = $false
+$limiteInferior = 0.48
+$limiteSuperior = 3.87
+# --- MEJORA: VARIABLES DE TELEMETRÍA GLOBAL DE TRÁFICO (UPGRADED v1.612) ---
+$globalSnapshot = @{}
+$bytesTransferidosUltimoSegundo = 0
+$lastBytes = 0
+$global:bytesTotalesAcumulados = 0  # <- NUEVA VARIABLE: Guarda el tráfico total del disco
+
+Write-Host "`nInitiating specialized monitoring in $driveLetter..." -ForegroundColor Green
+
+while($true) {
+    try {
+
+        Clear-Host # <-- NUEVA LÍNEA: Limpia la pantalla en cada ciclo para fijar la interfaz
+
+        if ($global:pausado) {
+            Write-Host "`r[!] MONITORING PAUSED (Optical Unit Resting)... Controls: [-]Resume [*]Exit    " -ForegroundColor Yellow -NoNewline
+            
+            # --- LEER TECLADO DURANTE LA PAUSA PARA EVITAR QUE SE QUEDE PEGADO ---
+            if ([System.Console]::KeyAvailable) {
+                $teclaPausa = [System.Console]::ReadKey($true)
+                if ($teclaPausa.KeyChar -eq '-') { 
+                    $global:pausado = -not $global:pausado
+                    [System.Console]::Beep(600, 150) 
+                }
+                                if ($teclaPausa.KeyChar -eq '*') { 
+                    "`nTOOL CLOSED FROM PAUSE: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
+                    [System.Console]::Beep(400, 200); Exit 
+                }
+            }
+            
+            Start-Sleep -Milliseconds 250 # Espera corta para mantener el teclado responsivo y no saturar el CPU
+            continue
+        }
+        # SE AGREGA PPSSPP Y RPCS3 A LA LISTA DE PROCESOS
+        $emuladorActivo = Get-Process -Name "pcsx2", "pcsx2-qt", "ePSXe", "rpcs3", "RPCS3", "PPSSPPWindows64", "PPSSPPWindows" -ErrorAction SilentlyContinue
+        
+        if ($emuladorActivo) {
+            if (-not $relojEmulador.IsRunning) { $relojEmulador.Start() }
+        } else {
+            if ($relojEmulador.IsRunning) { $relojEmulador.Stop() }
+        }
+
+        $tiempo = Measure-Command {
+            $streamSonda = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+            $streamSonda.Close()
+            $streamSonda.Dispose()
+        }
+        $ms = $tiempo.TotalMilliseconds
+        
+        $ejecutarPulso = $false
+        $esTurboActual = ($modoTurbo -and $emuladorActivo)
+        $motivoSalto = "Out of Range"
+
+        # --- LÓGICA DE PRECISIÓN PARA DETECCIÓN DE HARDWARE ---
+        if (-not $modoBajaLatenciaActivo) {
+            if ($ms -lt 0.601 -and $ms -gt 0.100) {
+                $conteoBajaLatencia++
+                $conteoEstabilidadNormal = 0 
+                if ($conteoBajaLatencia -ge 6) {
+                    $modoBajaLatenciaActivo = $true
+                    $limiteInferior = 0.380
+                    $limiteSuperior = 1.18
+                    Write-Host "`n[!] LOW LATENCY MODE AUTOMATICALLY ACTIVATED" -ForegroundColor Magenta
+                }
+            } 
+            elseif ($ms -ge 0.601) {
+                $conteoEstabilidadNormal++
+                if ($conteoEstabilidadNormal -ge 8) {
+                    $conteoBajaLatencia = 0
+                    $conteoEstabilidadNormal = 0
+                }
+            }
+        }
+
+        # --- LÓGICA DE PULSO ADAPTATIVA (MEJORA PPSSPP) ---
+        # Definimos límites temporales para el cálculo actual
+        $limiteInfActual = $limiteInferior
+        $limiteSupActual = $limiteSuperior
+
+        # Si el emulador es PPSSPP, aplicamos el rango especial solicitado
+        if ($emuladorActivo -and ($emuladorActivo.Name -like "*PPSSPP*")) {
+            $limiteInfActual = 0.15
+            $limiteSupActual = 25.98
+        }
+
+        if ($emuladorActivo) {
+            if ($ms -ge $limiteInfActual -and $ms -le $limiteSupActual) {
+                $accion = "GAME MAINTENANCE ($($emuladorActivo.Name))"
+                $ejecutarPulso = $true
+            } else {
+                $motivoSalto = if ($ms -lt $limiteInfActual) { "ACTIVE READING" } else { "HIGH LATENCY" }
+            }
+        }
+        elseif ($ms -ge $limiteInferior -and $ms -le ($limiteSuperior - 0.049)) {
+            $accion = "STANDARD RESTING PULSE"
+            $ejecutarPulso = $true
+        }
+
+        # --- FILTRO INTELIGENTE OPTIMIZADO CON TELEMETRÍA (v1.612) ---
+        if ($ejecutarPulso -and $bytesTransferidosUltimoSegundo -gt 10KB) { 
+            $ejecutarPulso = $false 
+            $motivoSalto = "MULTIMEDIA ACTIVE READING/GAME" 
+        }
+
+        # Acumulamos el tráfico detectado en el contador histórico global antes de registrarlo
+        $global:bytesTotalesAcumulados += $bytesTransferidosUltimoSegundo
+
+        # Identificamos dinámicamente cuál de los procesos monitoreados está consumiendo datos en este ciclo
+        $procesoOrigen = "Rest/Unknown"
+        if ($bytesTransferidosUltimoSegundo -gt 0) {
+            $procesoDetectado = Get-CimInstance -ClassName Win32_Process | 
+                Where-Object { $_.Name -match "pcsx2|pcsx2-qt|ePSXe|rpcs3|RPCS3|PPSSPPWindows64|PPSSPPWindows|System|explorer|wmplayer|wmpnetwk|vlc|mpc-hc|ApplicationFrameHost|Video.UI" -and $_.ReadTransferCount -gt 0 } | 
+                Sort-Object -Property ReadTransferCount -Descending | Select-Object -First 1
+            if ($null -ne $procesoDetectado) { $procesoOrigen = $procesoDetectado.Name }
+        }
+
+        if ($ejecutarPulso) {
+            [System.GC]::Collect()
+            [System.GC]::WaitForPendingFinalizers()
+            $stream = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+            $null = $stream.Read($buffer, 0, 1)
+            $stream.Close()
+            $stream.Dispose()
+            
+            if ($esTurboActual) { $stats.ExitososTurbo++ } else { $stats.Exitosos++ }
+            Write-Host ("{0} - [{1}] - Latency: {2:N3}ms" -f (Get-Date -Format 'HH:mm:ss'), $accion, $ms) -ForegroundColor Green
+            Write-Log "PULSE OK - [$accion] - Latency: $($ms.ToString('N3'))ms - Reading: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s (Origin: $procesoOrigen)"
+        } 
+        else {
+            if($esTurboActual) { $stats.SaltadosTurbo++ } else { $stats.Saltados++ }
+            $colorSalto = if ($motivoSalto -eq "MULTIMEDIA ACTIVE READING/GAME") { "Green" } else { "Cyan" }
+            Write-Host ("{0} - [LEAPT] - {1} ({2:N3}ms)" -f (Get-Date -Format 'HH:mm:ss'), $motivoSalto, $ms) -ForegroundColor $colorSalto
+            Write-Log "LEAPT - Reason: $motivoSalto - Latency: $($ms.ToString('N3'))ms - Reading: $(($bytesTransferidosUltimoSegundo / 1MB).ToString('N2'))MB/s (Origin: $procesoOrigen)"
+        }
+    } 
+    catch {
+        Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Unit busy (Reading data)." -ForegroundColor Yellow
+    }
+
+    # PANEL DE ESTADÍSTICAS CORREGIDO (CON VERSIÓN FIJA)
+    $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
+    $textoBytes = if ($bytesTransferidosUltimoSegundo -gt 0) { "{0:N2} MB/s" -f ($bytesTransferidosUltimoSegundo / 1MB) } else { "0.00 MB/s" }
+    
+    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM v1.612_Legacy ---
+    Write-Host "[ OPTICAL DRIVE MONITOR v1.612 Legacy ]" -ForegroundColor Cyan
+    Write-Host "[ GLOBAL SESSION: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | JUMPS: $($stats.Saltados) | TRAFFIC: $textoBytes ]" -ForegroundColor $colorPanel
+    
+    if ($relojEmulador.ElapsedMilliseconds -gt 0) {
+        $colorSesion = if ($emuladorActivo) { "Green" } else { "Gray" }
+        $estadoJuego = if ($emuladorActivo) { "EXECUTING" } else { "ON PAUSE/CLOSED" }
+        Write-Host "[ GAME SESSION ($estadoJuego): $($relojEmulador.Elapsed.ToString('hh\:mm\:ss')) ]" -ForegroundColor $colorSesion
+        if($modoTurbo) {
+            Write-Host "[ TURBO MODE ACTIVE | OK: $($stats.ExitososTurbo) | JUMPS: $($stats.SaltadosTurbo) ]" -ForegroundColor Red
+        }
+    }
+
+    # Gestión de tiempos de espera (Optimizado con Ventana de Anticipación Predictiva)
+    $segundosEspera = if ($emuladorActivo) { if ($modoTurbo) { 5 } else { 22 } } else { 23 }
+    $i = $segundosEspera
+    
+    # Reiniciamos las variables acumuladoras para el nuevo ciclo
+    $bytesTransferidosUltimoSegundo = 0
+    $traficoAcumuladoVentana = 0
+
+    while ($i -gt 0) {
+        
+        # COMPROBACIÓN DE TECLAS AL VUELO (' o +) - INTACTO
+        if ([System.Console]::KeyAvailable) {
+            $tecla = [System.Console]::ReadKey($true)
+            if ($tecla.KeyChar -eq '´' -or $tecla.KeyChar -eq '+') {
+                $modoTurbo = -not $modoTurbo
+                [System.Console]::Beep(800, 100) 
+                if ($emuladorActivo) {
+                    if ($modoTurbo -and $i -gt 5) { $i = 5 }
+                    elseif (-not $modoTurbo) { $i = 22 }
+                }
+            }
+            if ($tecla.KeyChar -eq '-') { $global:pausado = -not $global:pausado; [System.Console]::Beep(600, 150) }
+            if ($tecla.KeyChar -eq '*') { 
+                "`nTOOL CLOSED CORRECTLY: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
+                [System.Console]::Beep(400, 200); Exit 
+            }
+        }
+
+        # --- CAPTURA UNIVERSAL SEGUNDO A SEGUNDO (MEJORADO MULTIMEDIA v1.612) ---
+        $currentBytes = [int64](Get-CimInstance -ClassName Win32_Process | 
+                        Where-Object { $_.Name -match "pcsx2|pcsx2-qt|ePSXe|rpcs3|RPCS3|PPSSPPWindows64|PPSSPPWindows|System|explorer|wmplayer|wmpnetwk|vlc|mpc-hc|ApplicationFrameHost|Video.UI" } | 
+                        Measure-Object -Property ReadTransferCount -Sum).Sum
+
+        if ($lastBytes -gt 0) {
+            $diff = $currentBytes - $lastBytes
+            $bytesTransferidosUltimoSegundo = if ($diff -gt 0) { $diff } else { 0 }
+        } else {
+            $bytesTransferidosUltimoSegundo = 0
+        }
+        $lastBytes = $currentBytes
+
+        # --- LÓGICA DE VENTANA PREDICTIVA ADAPTATIVA ---
+        # Si está en MODO TURBO, sumamos el tráfico de los últimos 2 segundos (cubre la ventana de 1.5s de forma segura)
+        if ($modoTurbo -and $emuladorActivo) {
+            if ($i -le 2) {
+                $traficoAcumuladoVentana += $bytesTransferidosUltimoSegundo
+            }
+        }
+        # Si está en MODO NORMAL, sumamos el tráfico de los últimos 2 segundos completos
+        else {
+            if ($i -le 2) {
+                $traficoAcumuladoVentana += $bytesTransferidosUltimoSegundo
+            }
+        }
+
+        $esTurboActual = ($modoTurbo -and $emuladorActivo)
+        $statusExtra = if($modoBajaLatenciaActivo){ " (LOW-LAT)" } else { "" }
+        $textoEstado = if($esTurboActual){ "TURBO" } else { "ESPERA$statusExtra" }
+        
+        # Mostramos la tasa instantánea con la guía completa de todos los controles
+        $msg = "`r[{0}] Espe: {1}s | Controls: [´/+]Turbo [-]Pause [*]Exit | Rate: {2:N2} MB/s    " -f $textoEstado, $i, ($bytesTransferidosUltimoSegundo / 1MB)
+        Write-Host -NoNewline $msg
+        
+        Start-Sleep -Seconds 1
+        $i--
+    }
+    
+    # Al salir del bucle, transferimos el acumulado de la ventana de seguridad para la toma de decisiones
+    if ($traficoAcumuladoVentana -gt 0) {
+        $bytesTransferidosUltimoSegundo = $traficoAcumuladoVentana
+    }
+    Write-Host "" 
+}
