@@ -42,7 +42,7 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <br>
 
   * **v2.210 (Current) and v1.612 Legacy**
-   * V2.210
+  * V2.210
     * Several improvements have been applied to the experimental feature.
     * A disk mapping system is now available that operates during use without impacting your game's performance.
     * Up to a 10% performance improvement in games that place a high demand on the optical disc drive (tested on a DVD drive using *Need for Speed: Most Wanted* a PS2 game emulated via PCSX2).
@@ -51,7 +51,7 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
     * The system now continues to automatically populate new LBA (Logical Block Address) entries as they are discovered. This ensures that the disk map becomes more comprehensive with each use laying the groundwork for an upcoming feature that may help resolve disk related latency issues. Stay tuned for future updates!
     * Each disc is assigned a unique ID (which is also included within the internal mapping data of the generated file).
     * Various minor fixes.
-   * V1.612 Legacy
+ * V1.612 Legacy
     * New stable version V1.612
     * The real time disk data reading system has been fixed and improved, making the pulse-ignoring mechanism "smarter."
     * Several outstanding bugs have been resolved.
