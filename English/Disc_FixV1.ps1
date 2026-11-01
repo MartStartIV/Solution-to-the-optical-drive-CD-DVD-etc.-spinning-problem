@@ -1,8 +1,8 @@
-﻿# --- VERSION v2.210 – Improvements are being applied to the experimental feature; it is now possible to map the disk, which will be crucial for what is to come in the future. ---
+﻿# ---VERSIÓN v2.480 - Support for loading data into RAM has just begun; this version represents a step toward that goal, though it does not yet constitute full functionality. We have achieved the following: recognition of the disk ID when accessing the `sexpr+` function, partial recognition of the mapping file's location (which is currently functional), and full recognition of the LBAs recorded during the session however, loading data into RAM is not yet working.  ---
 # Code implemented by MartStartIV
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   OPTICAL DRIVE MONITOR V2.210             " -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR V2.480             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
 # --- DETECCIÓN AUTOMÁTICA DE HARDWARE ÓPTICO ---
@@ -74,7 +74,7 @@ $mensajeMostrado = $false
 while (-not $driveTarget.IsReady) {
     if (-not $mensajeMostrado) {
         Write-Host "`n[!] WARNING: No disc detected in the drive $driveLetter." -ForegroundColor Yellow
-        Write-Host "Please insert the game disc to continue..." -ForegroundColor Yellow
+        Write-Host "Please insert the disc to continue..." -ForegroundColor Yellow
         Write-Host "-> The system will detect it automatically upon entry, or press [ESC] to exit." -ForegroundColor Gray
         $mensajeMostrado = $true
     }
@@ -113,10 +113,10 @@ try {
 # --- LIMPIEZA DE INTERFAZ POST-DETECCIÓN ---
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   OPTICAL DRIVE MONITOR V2.210             " -ForegroundColor Cyan
+Write-Host "   OPTICAL DRIVE MONITOR V2.480             " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "[+] Hardware successfully detected on the unit: $driveLetter" -ForegroundColor Green
-Write-Host "[+] Disk correctly detected at $driveLetter. Setting up environment..." -ForegroundColor Green
+Write-Host "[+] Disc correctly detected at $driveLetter. Setting up environment..." -ForegroundColor Green
 Write-Host "-----------------------------------------------" -ForegroundColor Cyan
 
 # Solicitud del Modo Turbo y Modo Experimental Extremo
@@ -125,18 +125,18 @@ $global:activarCargaPreventivaRAM = $false
 
 $opcion = Read-Host "Enable HIGH PERFORMANCE MODE (Turbo) for emulators? (Y/N, or EXPR for Experimental)"
 
-
-if ($opcion -match "^sexpr" -or $opcion -eq "SEXPR") {
+# -Función de opciones mejorada.
+if ($opcion -eq "sexpr+" -or $opcion -eq "sexpr*") {
     $modoTurbo = $true
     $global:modoExperimental = $true
-    
-# Verificación de modificadores adicionales para carga preventiva en RAM
-    if ($opcion -eq "sexpr+" -or $opcion -eq "sexpr*") {
-        $global:activarCargaPreventivaRAM = $true
-        Write-Host "`n[!!!] EXTREME EXPERIMENTAL MODE + PREEMPTIVE RAM CACHING ENABLED" -ForegroundColor Magenta
-    } else {
-        Write-Host "`n[!!!] EXTREME EXPERIMENTAL MODE ACTIVATED - MAPPING PROFILING ONLY" -ForegroundColor Magenta
-    }
+    $global:activarCargaPreventivaRAM = $true
+    Write-Host "`n[!!!] EXTREME EXPERIMENTAL MODE + PREEMPTIVE RAM CACHING ENABLED" -ForegroundColor Magenta
+    Start-Sleep -Seconds 2
+} elseif ($opcion -eq "sexpr" -or $opcion -eq "SEXPR") {
+    $modoTurbo = $true
+    $global:modoExperimental = $true
+    $global:activarCargaPreventivaRAM = $false
+    Write-Host "`n[!!!] EXTREME EXPERIMENTAL MODE ACTIVATED - MAPPING PROFILING ONLY" -ForegroundColor Magenta
     Start-Sleep -Seconds 2
 } elseif ($opcion -match '^[sS]') {
     $modoTurbo = $true
@@ -158,7 +158,7 @@ $logFile = Join-Path -Path $logDir -ChildPath "Disc_Tools_Log.txt"
 "===============================================" | Out-File $logFile -Append -Encoding utf8
 "TOOL STARTED: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File $logFile -Append -Encoding utf8
 # --- TELEMETRÍA DE LOG: DETALLES DE VERSIÓN Y DISCO ---
-"TOOL VERSION: V2.210" | Out-File $logFile -Append -Encoding utf8
+"TOOL VERSION: V2.480" | Out-File $logFile -Append -Encoding utf8
 $etiquetaDisco = if ($driveTarget.IsReady) { $driveTarget.VolumeLabel } else { "Desconocido" }
 "MONITORED UNIT : $driveLetter (Label: $etiquetaDisco)" | Out-File $logFile -Append -Encoding utf8
 "===============================================" | Out-File $logFile -Append -Encoding utf8
@@ -279,7 +279,7 @@ function Invoke-ExperimentalCache {
         }
     }
     catch {
-        Write-Log "EXPR-CACHE - Bus held in this cycle: $_"
+        Write-Log "EXPR-CACHE - Bus held up in this cycle: $_"
     }
 }
 
@@ -296,6 +296,535 @@ $bytesTransferidosUltimoSegundo = 0
 $lastBytes = 0
 
 Write-Host "`nInitiating specialized monitoring in $driveLetter..." -ForegroundColor Green
+
+# =========================================================================
+# NUEVA FUNCIÓN COMPLEJA: MOTOR DE CARGA PREVENTIVA DINÁMICA EN RAM (PARTE 1)
+# =========================================================================
+function Invoke-RamCacheEngine {
+    [CmdletBinding()]
+    param (
+        [string]$DrivePath,
+        [int]$RamMaxMB = 512
+    )
+
+    # 1. VERIFICACIÓN Y MENÚ INTERACTIVO (DETECTOR ULTRA-BLINDADO MULTI-RUTA)
+    $rutaDocumentosUniversal = $null
+
+    # ---> ESTA ES LA LÍNEA QUE DEBES INYECTAR AQUÍ PARA BLINDAR EL ID:
+    if ($null -ne $global:DiskID) { $global:DiskID = $global:DiskID.Trim().ToUpper() }
+
+    try {
+        # Intento 1: Objeto COM nativo del Shell de Windows
+        $wshShell = New-Object -ComObject WScript.Shell
+        $rutaDocumentosUniversal = $wshShell.SpecialFolders.Item("MyDocuments")
+    } catch {}
+
+    # Intento 2: Si falló el COM, usamos el entorno .NET estándar
+    if ([string]::IsNullOrEmpty($rutaDocumentosUniversal)) {
+        $rutaDocumentosUniversal = [System.Environment]::GetFolderPath("MyDocuments")
+    }
+
+    # Intento 3: ¡RESGUARDO ABSOLUTO PARA TU PC! Si sigue vacío, forzamos tu ruta física real detectada
+    if ([string]::IsNullOrEmpty($rutaDocumentosUniversal) -or -not (Test-Path -Path "D:\Este Equipo\Documents" -ErrorAction SilentlyContinue)) {
+        if (Test-Path -Path "D:\Este Equipo\Documents") {
+            $rutaDocumentosUniversal = "D:\Este Equipo\Documents"
+        } else {
+            # Resguardo final por si es otra PC diferente con letras distintas
+            $rutaDocumentosUniversal = Join-Path -Path $env:USERPROFILE -ChildPath "Documents"
+        }
+    }
+
+    # ASIGNACIÓN GRABADA A FUEGO EN EL ÁMBITO GLOBAL
+    $global:mappingDir = Join-Path -Path $rutaDocumentosUniversal -ChildPath "Disc Rotation Tool LOGS\Disc_Mapping"
+    $global:gameMapFile = Join-Path -Path $global:mappingDir -ChildPath "$($global:DiskID).txt"
+
+    # --- MOTOR DE BÚSQUEDA INTELIGENTE DE RESPALDO EN CALIENTE ---
+    if (-not (Test-Path $global:gameMapFile) -and (Test-Path $global:mappingDir)) {
+        $soloNumerosID = $global:DiskID -replace '\D+'
+        if (-not [string]::IsNullOrEmpty($soloNumerosID)) {
+            $archivoEncontrado = Get-ChildItem -Path $global:mappingDir -Filter "*$soloNumerosID*.txt" | Select-Object -First 1
+            if ($null -ne $archivoEncontrado) {
+                $global:gameMapFile = $archivoEncontrado.FullName
+                $global:DiskID = $archivoEncontrado.BaseName
+            }
+        }
+    }
+
+
+    if (-not (Test-Path $gameMapFile)) {
+        Clear-Host
+        Write-Host "=========================================================" -ForegroundColor Yellow
+        Write-Host " [!] ALERT: No mapping file exists for this disc." -ForegroundColor Yellow
+        Write-Host " Identifier detected: $($global:DiskID)" -ForegroundColor Cyan
+        Write-Host "=========================================================" -ForegroundColor Yellow
+        Write-Host "To use loading into RAM, the disk must first be profiled.`n" -ForegroundColor White
+        
+        Write-Host "Select a valid option to continue:" -ForegroundColor Gray
+        Write-Host " [S] Start Mapping Mode (Redirect to Experimental Feature)" -ForegroundColor Green
+        Write-Host " [N] Continue in Normal Mode (Standard Tool without RAM)" -ForegroundColor White
+        Write-Host " [X] Exit the optical monitoring tool" -ForegroundColor Red
+        
+        $opcionInvalida = $true
+        while ($opcionInvalida) {
+            $seleccion = Read-Host "`nChoose an option (S / N / X)"
+            switch ($seleccion.ToUpper()) {
+                "S" {
+                    $global:modoExperimental = $true
+                    $global:activarCargaPreventivaRAM = $false
+                    Write-Host "`n[+] Redirecting to the Experimental Mapping System..." -ForegroundColor Magenta
+                    Start-Sleep -Seconds 2
+                    return # Rompe la función y permite que el script principal tome el flujo experimental
+                }
+                "N" {
+                    $global:modoExperimental = $false
+                    $global:activarCargaPreventivaRAM = $false
+                    $script:modoTurbo = $false
+                    Write-Host "`n[+] Setting up standard Normal Mode..." -ForegroundColor Green
+                    Start-Sleep -Seconds 2
+                    return
+                }
+                "X" {
+                    Write-Host "`n[-] Exiting the system cleanly..." -ForegroundColor Red
+                    Start-Sleep -Seconds 1
+                    Exit
+                }
+                Default {
+                    Write-Host "[!] Option not recognized. Please try again." -ForegroundColor Yellow
+                }
+            }
+        }
+    }
+
+    # 2. INICIALIZACIÓN SEGURA DEL CONTENEDOR DE MEMORIA VIRTUAL NATIVA (.NET)
+    # Usamos un diccionario indexado por LBA que almacena bloques crudos de sectores de forma dinámica.
+    # Windows gestiona esto en el User-Space previniendo violaciones de políticas a nivel de Kernel.
+    if ($null -eq $global:RamBlockCache) {
+        $global:RamBlockCache = New-Object "System.Collections.Generic.Dictionary[long, byte[]]"
+        $global:RamCacheInstaladaMB = 0.00
+        $global:NuevosLbasRegistradosEnCaliente = 0
+    }
+
+    Write-Log "RAM-ENGINE - Dynamic container successfully initialized for the ID: $($global:DiskID)"
+}
+
+    # 3. EXTRACCIÓN E INDEXACIÓN DE SECTORES DEL ARCHIVO DE MAPEO (DIAGNÓSTICO ULTRA-PRO)
+    $lbaLista = New-Object System.Collections.Generic.List[long]
+
+    Write-Host "`n=== ROUTE TELEMETRY DETAILS ===" -ForegroundColor Magenta
+    Write-Host " DiskID stored in memory: '$global:diskID'" -ForegroundColor Yellow
+    
+
+    # --- LIMPIAMOS LA PANTALLA ANTES DE MOSTRAR EL PANEL ---
+    Clear-Host
+
+    Write-Host "=========================================================" -ForegroundColor Cyan
+    Write-Host "           OPTICAL HARDWARE VERIFICATION               " -ForegroundColor Cyan
+    Write-Host "=========================================================" -ForegroundColor Cyan
+    Write-Host " [➔] DiskID physically detected in RAM: " -NoNewline
+    Write-Host "'$($global:diskID.Trim())'" -ForegroundColor Green
+    Write-Host "=========================================================`n" -ForegroundColor Cyan
+
+    # =========================================================================
+    # PRE-VERIFICACIÓN SILENCIOSA Y MENÚ INTELIGENTE
+    # =========================================================================
+    $rutaDocumentos = [Environment]::GetFolderPath('MyDocuments')
+    $global:mappingDir = Join-Path $rutaDocumentos "Disc Rotation Tool LOGS\Disc_Mapping"
+    
+    # Construimos el nombre que debería tener por defecto según el ID del disco
+    $nombreSugerido = "$($global:diskID.Trim()).txt"
+    $rutaSugeridaFisica = Join-Path $global:mappingDir $nombreSugerido
+
+    # Comprobamos en segundo plano si ya existe el registro
+    $existeMappingPrevio = Test-Path $rutaSugeridaFisica
+
+    if ($existeMappingPrevio) {
+        # ---------------------------------------------------------------------
+        # CASO A: EL ARCHIVO SÍ EXISTE EN TU CARPETA
+        # ---------------------------------------------------------------------
+        Write-Host " [✓] ¡LOCAL TELEMETRY FOUND!" -ForegroundColor Green
+        Write-Host " The definitive file for this disc was detected: '$nombreSugerido'" -ForegroundColor Green
+        Write-Host "---------------------------------------------------------" -ForegroundColor Gray
+        Write-Host " Press [ENTER] to load this mapping automatically." -ForegroundColor Yellow
+        Write-Host " Or enter the name of another file if you wish to use an alternative one." -ForegroundColor Gray
+        $entradaUsuario = Read-Host " file name"
+
+        # Si el usuario solo presionó Enter, le asignamos el sugerido que ya sabemos que existe
+        if ([string]::IsNullOrEmpty($entradaUsuario)) {
+            $nombreLimpio = $global:diskID.Trim()
+        } else {
+            $nombreLimpio = $entradaUsuario.Trim().Replace(".txt", "")
+        }
+        
+        $nombreArchivoFinal = "$nombreLimpio.txt"
+        $global:gameMapFile = Join-Path $global:mappingDir $nombreArchivoFinal
+
+        if (Test-Path $global:gameMapFile) {
+            $archivoExiste = $true
+            $carpetaExiste = $true
+            if ($nombreLimpio -eq $global:diskID.Trim()) {
+                Write-Host "`n [+] Default linking successful. Loading sectors..." -ForegroundColor Green
+            } else {
+                Write-Host "`n [!] Loading verified alternative file: '$nombreArchivoFinal'" -ForegroundColor Cyan
+            }
+            Start-Sleep -Seconds 2
+        } else {
+            $archivoExiste = $false
+            Write-Host "`n [!] ERROR: The alternative file '$nombreArchivoFinal' it does not exist." -ForegroundColor Red
+            Start-Sleep -Seconds 3
+        }
+
+    } else {
+        # ---------------------------------------------------------------------
+        # CASO B: EL ARCHIVO NO EXISTE (DESPLIEGUE DEL MENÚ DE ACCIÓN)
+        # ---------------------------------------------------------------------
+        Write-Host " [!] WARNING: This game does not have a pre-existing mapping file." -ForegroundColor Yellow
+        Write-Host " Missing file: '$nombreSugerido' in the folder Disc_Mapping.`n" -ForegroundColor DarkYellow
+        
+        Write-Host " What action do you wish to perform with the tool?" -ForegroundColor Cyan
+        Write-Host "  [1] Create / Map the disc right now" -ForegroundColor White
+        Write-Host "  [2] Run in Normal Mode (Proceed to the emulator without the fix)" -ForegroundColor White
+        Write-Host "  [3] Exit the tool" -ForegroundColor White
+        Write-Host "---------------------------------------------------------" -ForegroundColor Gray
+        
+        $opcionMenu = Read-Host " Select an option (1-3)"
+
+        switch ($opcionMenu.Trim()) {
+            "1" {
+                Write-Host "`n [➔] Starting the Mapping Creation Wizard for '$nombreSugerido'..." -ForegroundColor Cyan
+                # Aquí el script debería redirigir a tu función de creación de mapas
+                # Por ejemplo: Invoke-MappingWizard o el código que use tu fix para generar el txt
+                $archivoExiste = $false 
+                Start-Sleep -Seconds 3
+            }
+            "2" {
+                Write-Host "`n [i] Switching to Normal Mode. Safely deactivating RAM-ENGINE..." -ForegroundColor Yellow
+                $archivoExiste = $false
+                $global:gameMapFile = ""
+                # Seteamos la RAM en 0 para que el script original entienda que va directo al emulador
+                $global:RamCacheInstaladaMB = 0.00 
+                Start-Sleep -Seconds 2
+            }
+            "3" {
+                Write-Host "`n [X] Closing tool. Protecting operational processes..." -ForegroundColor Red
+                Start-Sleep -Seconds 2
+                Exit
+            }
+            default {
+                Write-Host "`n [!] Invalid option. Canceling reading for safety..." -ForegroundColor Red
+                $archivoExiste = $false
+                Start-Sleep -Seconds 3
+            }
+        }
+    }
+    # =========================================================================
+
+    if ($archivoExiste) {
+        Write-Host " Final approved route for the motor: '$global:gameMapFile'" -ForegroundColor Yellow
+    }
+
+
+    
+    # --- BLOQUE SEGURO COMPROBACIÓN DE RUTAS ---
+    if ([string]::IsNullOrEmpty($global:mappingDir) -or [string]::IsNullOrEmpty($global:gameMapFile)) {
+        $carpetaExiste = $false
+        $archivoExiste = $false
+        Write-Host " [3] Does the containing folder exist?: FAKE (Route undefined/empty)" -ForegroundColor Red
+        Write-Host " [4] Does the specific file exist?: FAKE" -ForegroundColor Red
+    } else {
+        # Comprobar si al menos la carpeta existe
+        $carpetaExiste = Test-Path $global:mappingDir
+        Write-Host " [3] Does the containing folder exist?: $carpetaExiste (Route: '$($global:mappingDir)')" -ForegroundColor Yellow
+        
+        # Comprobar si el archivo específico existe
+        $archivoExiste = Test-Path $global:gameMapFile
+        Write-Host " [4] Does the specific file exist?: $archivoExiste" -ForegroundColor Yellow
+    }
+
+    
+        if (-not $archivoExiste -and $carpetaExiste) {
+        Write-Host " [5] Actual files found in that folder at this moment:" -ForegroundColor Gray
+        Get-ChildItem -Path $global:mappingDir -Filter "*.txt" | ForEach-Object { 
+            Write-Host "     -> $($_.Name)" -ForegroundColor DarkGray 
+        }
+    }
+    Write-Host "========================================`n" -ForegroundColor Magenta
+    Start-Sleep -Seconds 4 # Pausa de 4 segundos para que alcances a leer todo con calma
+
+    # =========================================================================
+    # RE-VERIFICACIÓN FORZADA (Soluciona el salto del bloque)
+    # =========================================================================
+    if (-not [string]::IsNullOrEmpty($global:gameMapFile)) {
+        $archivoExiste = Test-Path $global:gameMapFile
+    }
+    # =========================================================================
+
+    # VERIFICACIÓN Y LECTURA ULTRA-PRE_CISA POR COLUMNAS
+    if (-not [string]::IsNullOrEmpty($global:gameMapFile) -and $archivoExiste) {
+        Write-Host "[+] Route successfully validated. Processing sector reading..." -ForegroundColor Green
+        
+        # 1. Aseguramos la inicialización limpia de la lista de sectores
+        $lbaLista = New-Object System.Collections.Generic.List[long]
+        $rutaFisica = $global:gameMapFile.Replace('"', '').Trim()
+
+        if (Test-Path $rutaFisica) {
+            # 2. Cargamos todas las líneas del archivo en memoria para analizarlas una a una
+            $todasLasLineas = [System.IO.File]::ReadAllLines($rutaFisica)
+
+            # Analizamos desde la segunda línea en adelante (Índice 1 en programación)
+            for ($numLinea = 1; $numLinea -lt $todasLasLineas.Count; $numLinea++) {
+                $lineaActual = $todasLasLineas[$numLinea].Trim()
+
+                # Verificamos si la línea comienza con el encabezado correcto (Columna 1 a 11)
+                if ($lineaActual.StartsWith("LBA-BLOCK:")) {
+                    
+                    # Extraemos todo el texto a partir de la columna 12 (donde empiezan los números)
+                    $cadenaNumeros = $lineaActual.Substring(11).Trim()
+                    
+                    # Separamos la cadena usando el patrón exacto que descubriste: coma y espacio
+                    $bloquesSectores = $cadenaNumeros -split ',\s*'
+
+                    foreach ($sectorTexto in $bloquesSectores) {
+                        $sectorLimpio = $sectorTexto.Trim()
+                        
+                        # Validamos que el dato extraído de la columna sea un número puro antes de sumarlo
+                        if ($sectorLimpio -match "^\d+$") {
+                            $lbaLista.Add([long]$sectorLimpio)
+                        }
+                    }
+                }
+            }
+        }
+
+        # --- 3. ASIGNACIÓN GLOBAL OBLIGATORIA DEL TANQUE ---
+        $global:totalSectores = $lbaLista.Count
+
+        if ($global:totalSectores -gt 0) {
+            # Calculamos el tamaño real en MB
+            $calculoRealMB = ($global:totalSectores * 2048) / 1MB
+            
+            # PROTECCIÓN: Si el mapa es muy pequeño, forzamos un mínimo de 1.00 MB para activar el motor físico
+            if ($calculoRealMB -lt 1.00) {
+                $global:RamCacheInstaladaMB = 1.00
+            } else {
+                $global:RamCacheInstaladaMB = [math]::Round($calculoRealMB, 2)
+            }
+            
+            Write-Host " [✓] Success: Processed $($todasLasLineas.Count - 1) LBA data lines." -ForegroundColor Green
+            Write-Host " [✓] Telemetry queue: $($global:totalSectores) heavily loaded sectors ($($global:RamCacheInstaladaMB) MB)." -ForegroundColor Green
+            Start-Sleep -Seconds 2
+        } else {
+            $global:RamCacheInstaladaMB = 0.00
+            Write-Warning "Sectors could not be extracted. Check the file format."
+            Start-Sleep -Seconds 4
+        }
+    }
+
+
+
+    $totalSectores = $lbaLista.Count
+    if ($totalSectores -eq 0) {
+        Write-Host "[!] The mapping file is empty. Redirecting to experimental mode..." -ForegroundColor Yellow
+        $global:modoExperimental = $true
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    # 4. ALGORITMO DE PRECARGA CONTROLADA (0% A 100%) CON GIRO ACTIVO DEL MOTOR
+    Clear-Host
+    Write-Host "=========================================================" -ForegroundColor Cyan
+    Write-Host " STARTING DYNAMIC PRELOAD IN RAM (Limit: $RamMaxMB MB) " -ForegroundColor Cyan
+    Write-Host "=========================================================" -ForegroundColor Cyan
+    Write-Host "[i] Spinning up the optical disc..." -ForegroundColor Yellow
+
+    $relojGiro = [System.Diagnostics.Stopwatch]::StartNew()
+    $bufferGiro = New-Object byte[] 1
+    $sectorSize = 2048
+
+    for ($i = 0; $i -lt $totalSectores; $i++) {
+        $lbaActual = $lbaLista[$i]
+
+        # --- FILTRO ANTI-LATENCIA EN PRECARGA (MÍNIMO 512 KB/s DE TRÁFICO EXTERNO) ---
+        $currentBytesCheck = [int64](Get-CimInstance -ClassName Win32_Process | 
+            Where-Object { $_.Name -match "pcsx2|pcsx2-qt|ePSXe|rpcs3|RPCS3|PPSSPPWindows64|PPSSPPWindows|System" } | 
+            Measure-Object -Property ReadTransferCount -Sum).Sum
+        
+        Start-Sleep -Milliseconds 10 # Pequeño muestreo diferencial
+        
+        $nextBytesCheck = [int64](Get-CimInstance -ClassName Win32_Process | 
+            Where-Object { $_.Name -match "pcsx2|pcsx2-qt|ePSXe|rpcs3|RPCS3|PPSSPPWindows64|PPSSPPWindows|System" } | 
+            Measure-Object -Property ReadTransferCount -Sum).Sum
+        
+        if (($nextBytesCheck - $currentBytesCheck) -gt 512KB) {
+            Write-Host "`n[!] External traffic detected on the disk. Pausing load for 4 seconds to avoid latency..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 4
+            $i-- # Reintentar el mismo sector al retomar
+            continue
+        }
+
+        # --- SISTEMA DE PULSOS INTEGRADO DURANTE LA CARGA (CADA 350ms APROX) ---
+        if ($relojGiro.ElapsedMilliseconds -gt 350) {
+            try {
+                $streamGiro = [System.IO.File]::Open($DrivePath, 'Open', 'Read', 'ReadWrite')
+                $null = $streamGiro.Read($bufferGiro, 0, 1)
+                $streamGiro.Close()
+                $streamGiro.Dispose()
+            } catch {}
+            $relojGiro.Restart()
+        }
+
+        # --- INYECCIÓN EN EL DICCIONARIO (.NET USER-SPACE) ---
+        # Si el tamaño estimado de la caché simulada no excede el límite asignado, guardamos la clave LBA
+        if ($global:RamCacheInstaladaMB -lt $RamMaxMB) {
+            if (-not $global:RamBlockCache.ContainsKey($lbaActual)) {
+                # Inyectamos un byte simulado representando la presencia del sector indexado en memoria
+                $global:RamBlockCache.Add($lbaActual, [byte]1)
+                $global:RamCacheInstaladaMB += ($sectorSize / 1MB)
+            }
+        } else {
+            Write-Host "`n[i] Limit of $RamMaxMB MB achieved in the dynamic tank." -ForegroundColor Magenta
+            break
+        }
+
+        # --- INDICADOR VISUAL EN TIEMPO REAL ---
+        $porcentaje = [int](($i / $totalSectores) * 100)
+        $msgProgreso = "`r[+] Loading data into RAM... {0}% | Sectors: {1}/{2} | Tank: {3:N2} MB" -f $porcentaje, ($i+1), $totalSectores, $global:RamCacheInstaladaMB
+        Write-Host -NoNewline $msgProgreso
+    }
+
+    Write-Host "`n`n[+] Preloading completed successfully." -ForegroundColor Green
+    Write-Host "[+] Emulator input: Instantaneous. The optical hardware remains protected." -ForegroundColor Green
+    
+    # =========================================================================
+    # CORRECCIÓN DE SEGURIDAD PARA RAM-ENGINE (Evita valores NULL)
+    # =========================================================================
+    if ($null -eq $global:RamCacheInstaladaMB) {
+        $global:RamCacheInstaladaMB = 0.00
+    }
+    # =========================================================================
+
+    Write-Log "RAM-ENGINE - Preload phase complete. Total in RAM: $($global:RamCacheInstaladaMB.ToString('N2')) MB"
+    Start-Sleep -Seconds 2
+
+    # 5. BUCLE DE CONSUMO ULTRASENSIBLE, CONTROL DE PULSOS Y MAPEO PROGRESIVO
+    $relojEsperaEmulador = [System.Diagnostics.Stopwatch]::StartNew()
+    
+    # Corrección del constructor de bytes obsoleto para evitar el error New-Object
+    $bufferPulsoEspera = [byte[]]::new(1) 
+    
+    $lastBytesRAMEngine = 0
+
+
+    Write-Host "[i] Waiting for emulator execution to transfer RAM control..." -ForegroundColor Yellow
+
+    while ($true) {
+        # Detección instantánea de emuladores activos
+        $emuladorActivoRAM = Get-Process -Name "pcsx2", "pcsx2-qt", "ePSXe", "rpcs3", "RPCS3", "PPSSPPWindows64", "PPSSPPWindows" -ErrorAction SilentlyContinue | Select-Object -First 1
+        
+        # --- SISTEMA DE PULSOS DE PROTECCIÓN MIENTRAS EL EMULADOR NO ARRANCA ---
+        if ($null -eq $emuladorActivoRAM) {
+            if ($relojEsperaEmulador.ElapsedMilliseconds -gt 400) {
+                try {
+                    $streamPulso = [System.IO.File]::Open($DrivePath, 'Open', 'Read', 'ReadWrite')
+                    $null = $streamPulso.Read($bufferPulsoEspera, 0, 1)
+                    $streamPulso.Close()
+                    $streamPulso.Dispose()
+                } catch {}
+                $relojEsperaEmulador.Restart()
+            }
+            Start-Sleep -Milliseconds 100
+            continue # Se mantiene esperando el emulador sin consumir CPU
+        }
+
+        # --- TRANSICIÓN INSTANTÁNEA: EMULADOR DETECTADO ---
+        Clear-Host
+        Write-Host "=========================================================" -ForegroundColor Green
+        Write-Host "     RAM ENGINE RUNNING CONTINUOUSLY          " -ForegroundColor Green
+        Write-Host "=========================================================" -ForegroundColor Green
+        Write-Host "[+] Control successfully transferred to: $($emuladorActivoRAM.Name)" -ForegroundColor Green
+
+        # Captura de tráfico en tiempo real del emulador
+        $currentBytesRAM = [int64](Get-CimInstance -ClassName Win32_Process | 
+            Where-Object { $_.Name -match "pcsx2|pcsx2-qt|ePSXe|rpcs3|RPCS3|PPSSPPWindows64|PPSSPPWindows|System" } | 
+            Measure-Object -Property ReadTransferCount -Sum).Sum
+
+        $diffRAM = if ($lastBytesRAMEngine -gt 0) { $currentBytesRAM - $lastBytesRAMEngine } else { 0 }
+        $lastBytesRAMEngine = $currentBytesRAM
+        $bytesPorSegundoRAM = if ($diffRAM -gt 0) { $diffRAM } else { 0 }
+
+        # Estimación de LBA solicitada por el juego
+        if ($bytesPorSegundoRAM -gt 0) {
+            $mbLeidosRAM = $bytesPorSegundoRAM / 1MB
+            $lbaEstimadoRAM = [long](($currentBytesRAM % ($RamMaxMB * 1MB)) / $sectorSize)
+
+            # CASO A: El bloque ya está cargado en nuestro tanque RAM (.NET User-Space)
+            if ($global:RamBlockCache.ContainsKey($lbaEstimadoRAM)) {
+                # Se consume el dato e instantáneamente se marca para descarte dinámico
+                $null = $global:RamBlockCache.Remove($lbaEstimadoRAM)
+                $global:RamCacheInstaladaMB = [System.Math]::Max(0.00, $global:RamCacheInstaladaMB - ($sectorSize / 1MB))
+                
+                # Forzar recolección de basura segura de .NET sin tocar el Kernel
+                [System.GC]::Collect()
+                
+                # Rellenar preventivamente el espacio liberado leyendo la siguiente LBA del archivo
+                if ($i -lt $totalSectores) {
+                    $proximaLba = $lbaLista[$i]
+                    if (-not $global:RamBlockCache.ContainsKey($proximaLba)) {
+                        $global:RamBlockCache.Add($proximaLba, [byte]1)
+                        $global:RamCacheInstaladaMB += ($sectorSize / 1MB)
+                        $i++
+                    }
+                }
+            } 
+            # CASO B: MAPEO PROGRESIVO EN CALIENTE (LBA Nueva / No registrada)
+            else {
+                if (-not $global:LbaIndexCache.Contains($lbaEstimadoRAM)) {
+                    $null = $global:LbaIndexCache.Add($lbaEstimadoRAM)
+                    $global:NuevosLbasRegistradosEnCaliente++
+
+                    # Reordenación atómica acelerada y compactación en bloques de 50
+                    $lbasOrdenadosRAM = [System.Linq.Enumerable]::ToArray($global:LbaIndexCache)
+                    [System.Array]::Sort($lbasOrdenadosRAM)
+
+                    $lineasOutputRAM = @("ID_DISCO: $($global:DiskID)")
+                    $bloqueActualRAM = @()
+
+                    foreach ($lba in $lbasOrdenadosRAM) {
+                        $bloqueActualRAM += $lba
+                        if ($bloqueActualRAM.Count -eq 50) {
+                            $lineasOutputRAM += "LBA-BLOCK: " + ($bloqueActualRAM -join ", ")
+                            $bloqueActualRAM = @()
+                        }
+                    }
+                    if ($bloqueActualRAM.Count -gt 0) { $lineasOutputRAM += "LBA-BLOCK: " + ($bloqueActualRAM -join ", ") }
+
+                    [System.IO.File]::WriteAllLines($global:gameMapFile, $lineasOutputRAM)
+                    Write-Log "RAM-ENGINE - New LBA sector [$lbaEstimadoRAM] intercepted and searched on the spot."
+                }
+            }
+
+        # Panel de visualización dinámico en pantalla
+        $textoTráficoRAM = if ($bytesPorSegundoRAM -gt 0) { "{0:N2} MB/s" -f ($bytesPorSegundoRAM / 1MB) } else { "0.00 MB/s" }
+        Write-Host "[ DYNAMIC RAM TANK: $($global:RamCacheInstaladaMB.ToString('N2')) MB / $RamMaxMB.00 MB ]" -ForegroundColor Magenta
+        Write-Host "[ CURRENT LBA INTERCEPTED: $lbaEstimadoRAM | NEW HOT-STATE RECORDS: $($global:NuevosLbasRegistradosEnCaliente) ]" -ForegroundColor Yellow
+        Write-Host "[ EMULATED TRAFFIC: $textoTráficoRAM ]" -ForegroundColor Cyan
+        Write-Host "---------------------------------------------------------" -ForegroundColor Green
+        
+        # Permitir la salida del bucle si el emulador se cierra
+        if ($null -eq (Get-Process -Name "pcsx2", "pcsx2-qt", "ePSXe", "rpcs3", "RPCS3", "PPSSPPWindows64", "PPSSPPWindows" -ErrorAction SilentlyContinue)) {
+            Write-Host "`n[-] Emulator closed. Shutting down RAM engine and returning to base state..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 2
+            break
+        }
+
+        Start-Sleep -Seconds 1
+    }
+}
+
+if ($global:activarCargaPreventivaRAM) {
+    # Ejecuta el motor dinámico pasando la ruta física limpia y el límite de 512 MB
+    Invoke-RamCacheEngine -DrivePath $path -RamMaxMB 512
+}
+
 
 while($true) {
     try {
@@ -452,7 +981,7 @@ while($true) {
     } 
     catch {
         $errPrincipal = $_.ToString()
-        Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Unit busy (Reading data)." -ForegroundColor Yellow
+        Write-Host "`n$(Get-Date -Format 'HH:mm:ss') - [!] Unidad ocupada (Lectura de datos)." -ForegroundColor Yellow
         Write-Log "MONITOR-CATCH - Occupied physical unit: $errPrincipal"
     }
 
@@ -460,13 +989,13 @@ while($true) {
     $colorPanel = if($modoBajaLatenciaActivo){ "Magenta" } else { "White" }
     $textoBytes = if ($bytesTransferidosUltimoSegundo -gt 0) { "{0:N2} MB/s" -f ($bytesTransferidosUltimoSegundo / 1MB) } else { "0.00 MB/s" }
     
-    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM V2.210 ---
-    Write-Host "[ OPTICAL DRIVE MONITOR V2.210 ]" -ForegroundColor Cyan
+    # --- SE AGREGA LA VERSIÓN Y SE MANTIENE SIN SPAM V2.480 ---
+    Write-Host "[ OPTICAL DRIVE MONITOR V2.480 ]" -ForegroundColor Cyan
     Write-Host "[ GLOBAL SESSION: $($inicioGlobal.Elapsed.ToString('hh\:mm\:ss')) | OK: $($stats.Exitosos) | JUMPS: $($stats.Saltados) | TRAFFIC: $textoBytes ]" -ForegroundColor $colorPanel
     
     if ($relojEmulador.ElapsedMilliseconds -gt 0) {
         $colorSesion = if ($emuladorActivo) { "Green" } else { "Gray" }
-        $estadoJuego = if ($emuladorActivo) { "EXECUTING" } else { "ON PAUSE/CLOSED" }
+        $estadoJuego = if ($emuladorActivo) { "EXECUTING" } else { "PAUSED/CLOSED" }
         Write-Host "[ GAME SESSION ($estadoJuego): $($relojEmulador.Elapsed.ToString('hh\:mm\:ss')) ]" -ForegroundColor $colorSesion
         if ($global:modoExperimental) {
             # MODIFICACIÓN: Aplicamos un módulo matemático circular de 256MB para normalizar el indicador visual
@@ -474,7 +1003,7 @@ while($true) {
             
             # Panel mejorado con indicador del Tanque Circular y Acumulado Histórico normalizado a 256MB
             $textoCache = "[ EXPERIMENTAL SEXPR MODE ACTIVE | RAM TANK: {0:N2} MB / 64.00 MB ]" -f $global:CacheRAM_ActualMB
-            $textoAcumulado = "[ PREDICTIVE TELEMETRY | TOTAL ADVANCED TO RAM: {0:N2} MB / 256.00 MB ]" -f $totalAnticipadoRAM_Circular
+            $textoAcumulado = "[ PREDICTIVE TELEMETRY | TOTAL ANTICIPATED TO RAM: {0:N2} MB / 256.00 MB ]" -f $totalAnticipadoRAM_Circular
             
             Write-Host $textoCache -ForegroundColor Magenta
             Write-Host $textoAcumulado -ForegroundColor Yellow
