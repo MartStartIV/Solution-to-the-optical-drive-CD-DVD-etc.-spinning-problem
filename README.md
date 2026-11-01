@@ -41,7 +41,16 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <summary><strong>Click to expand version history</strong></summary>
   <br>
 
-  * **v2.210 (Current) and v1.612 Legacy**
+  * **v2.480 (Current)**
+    * Support for loading data into RAM is now being implemented. While this version represents progress toward that goal, the feature is not yet fully functional. Current capabilities include:
+    * Recognition of the disk ID when accessing the 'sexpr+' function.
+    * Partial recognition of the mapping file's location.
+    * Full recognition of the LBAs recorded during the session; however, loading data into RAM is not yet functional in this version.
+    * As this is an experimental version, you may encounter issues such as:
+    * General functional failures, inability to access features that previously worked, or unexpected application crashes.
+    * If you manage to use the 'experimental+' function, please note that your selected mappings may be erased by this update; please create a backup.
+    * Some critical errors have been identified; these will be addressed in upcoming updates.
+  * **v2.210 and v1.612 Legacy**
   * V2.210
     * Several improvements have been applied to the experimental feature.
     * A disk mapping system is now available that operates during use without impacting your game's performance.
