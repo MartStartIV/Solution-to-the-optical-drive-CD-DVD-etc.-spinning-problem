@@ -41,7 +41,14 @@ To ensure it works correctly, simply run the `.bat` file. This launches PowerShe
   <summary><strong>Click to expand version history</strong></summary>
   <br>
 
-  * **v2.570 (Current-BETA)**
+  * **v2.574 (Current)**
+    * Critical bugs that prevented the selection of previously functional options thereby limiting their operation have been fixed.
+    * Data is now being loaded into RAM; while the amount is currently small, it marks the beginning of the intended goal though there is still a long way to go (approximately 1–2 MB).
+    * Several critical issues in the codebase have been resolved, and functions that were poorly implemented have been cleaned up, partially achieving the objective.
+    * Optical drive acceleration.
+    * Minor improvements for *NFS: Most Wanted*, resulting in a 10% performance boost.
+    * We are returning to stable versions for the 2.xx branch! :)
+  * **v2.570 (BETA)**
     * Some minor issues have been resolved.
     * Initial functionality for loading data into RAM has been implemented; it is still under development, but it is already functional a step forward.
     * There is still an ongoing issue where the system gets stuck in the "experimental+" mode, preventing users from exiting this option. This sometimes occurs due to a missing disk mapping (rest assured, this is scheduled to be fixed in the next update).
